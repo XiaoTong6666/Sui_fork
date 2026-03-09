@@ -1,30 +1,24 @@
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.31)
 
 project("sui")
 
-message("Build type: ${CMAKE_BUILD_TYPE} ${FLAVOR}")
+message("Build type: ${CMAKE_BUILD_TYPE} Zygisk")
 
 set(CMAKE_CXX_STANDARD 17)
 
-set(LINKER_FLAGS "-ffixed-x18 -Wl,--hash-style=both")
-set(C_FLAGS "-Werror=format -fdata-sections -ffunction-sections -fno-exceptions -fno-rtti -fno-threadsafe-statics")
+add_link_options(-ffixed-x18 -Wl,--hash-style=both -static-libstdc++)
+add_compile_options(-Werror=format -fdata-sections -ffunction-sections -fno-exceptions -fno-rtti -fno-threadsafe-statics -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0)
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(C_FLAGS "${C_FLAGS} -O2 -fvisibility=hidden -fvisibility-inlines-hidden")
-    set(LINKER_FLAGS "${LINKER_FLAGS} -Wl,-exclude-libs,ALL -Wl,--gc-sections")
+    add_definitions(-DNDEBUG)
+    add_compile_options(-O3 -flto -fvisibility-inlines-hidden)
+    add_link_options(-flto -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,--strip-all)
 else ()
     add_definitions(-DDEBUG)
-    set(C_FLAGS "${C_FLAGS} -O0")
+    add_compile_options(-O0)
 endif ()
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${C_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${C_FLAGS}")
-
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${LINKER_FLAGS}")
-set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${LINKER_FLAGS}")
-
 find_package(cxx REQUIRED CONFIG)
-find_package(riru REQUIRED CONFIG)
 find_package(nativehelper REQUIRED CONFIG)
 
 include_directories(".")
@@ -42,32 +36,21 @@ add_library(util STATIC
         util/socket.cpp)
 target_link_libraries(util cxx::cxx log nativehelper::nativehelper_header_only)
 
-if (FLAVOR STREQUAL "riru")
-    set(CORE_MAIN_SOURCE "main_riru.cpp")
-    add_definitions(-DRIRU_MODULE)
-    add_definitions(-DRIRU_MODULE_API_VERSION=${RIRU_MODULE_API_VERSION})
-    add_definitions(-DRIRU_MODULE_VERSION=${RIRU_MODULE_VERSION})
-    add_definitions(-DRIRU_MODULE_VERSION_NAME=${RIRU_MODULE_VERSION_NAME})
-elseif (FLAVOR STREQUAL "zygisk")
-    set(CORE_MAIN_SOURCE "main_zygisk.cpp")
-    add_definitions(-DZYGISK_MODULE_ID=${ZYGISK_MODULE_ID})
-else ()
-    message(FATAL_ERROR "Unknown flavor ${FLAVOR}")
-endif ()
+add_definitions(-DZYGISK_MODULE_ID=${ZYGISK_MODULE_ID})
 
 add_library(sui SHARED
-        core/${CORE_MAIN_SOURCE}
+        core/main_zygisk.cpp
         core/main.cpp
         core/system_server.cpp
         core/binder_hook.cpp
         core/bridge_service.cpp
         core/manager_process.cpp
         core/settings_process.cpp)
-target_link_libraries(sui util cxx::cxx log riru::riru nativehelper::nativehelper_header_only)
+target_link_libraries(sui util cxx::cxx log nativehelper::nativehelper_header_only)
 set_target_properties(sui PROPERTIES LINK_FLAGS_RELEASE -s)
 
 add_executable(libmain.so main/main.cpp)
-target_link_libraries(libmain.so util cxx::cxx log riru::riru nativehelper::nativehelper_header_only)
+target_link_libraries(libmain.so util cxx::cxx log nativehelper::nativehelper_header_only)
 set_target_properties(libmain.so PROPERTIES LINK_FLAGS_RELEASE -s)
 
 add_executable(libadbd_wrapper.so
@@ -79,6 +62,10 @@ add_library(adbd_preload SHARED
         adbd/adbd_preload.cpp)
 target_link_libraries(adbd_preload cxx::cxx log)
 set_target_properties(adbd_preload PROPERTIES LINK_FLAGS_RELEASE -s)
+
+add_executable(libsepolicy_checker.so checker/checker_main.cpp)
+target_link_libraries(libsepolicy_checker.so util cxx::cxx log nativehelper::nativehelper_header_only)
+set_target_properties(libsepolicy_checker.so PROPERTIES LINK_FLAGS_RELEASE -s)
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_custom_command(TARGET sui POST_BUILD
@@ -92,4 +79,7 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
 
     add_custom_command(TARGET adbd_preload POST_BUILD
             COMMAND ${CMAKE_STRIP} --strip-all --remove-section=.comment "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libadbd_preload.so")
+
+    add_custom_command(TARGET libsepolicy_checker.so POST_BUILD
+            COMMAND ${CMAKE_STRIP} --strip-all --remove-section=.comment "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libsepolicy_checker.so")
 endif ()

@@ -14,13 +14,14 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.settings;
 
 import static rikka.sui.settings.SettingsConstants.LOGGER;
 import static rikka.sui.shortcut.ShortcutConstants.SHORTCUT_EXTRA;
+import static rikka.sui.shortcut.ShortcutConstants.SHORTCUT_EXTRA_TOKEN;
 
 import android.app.Activity;
 import android.app.ActivityThread;
@@ -45,18 +46,15 @@ import android.os.TestLooperManager;
 import android.os.UserHandle;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-
 import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
-
 import com.android.internal.content.ReferrerIntent;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-
 import rikka.sui.resource.SuiApk;
+import rikka.sui.util.BridgeServiceClient;
 import rikka.sui.util.InstrumentationUtil;
 
 public class SettingsInstrumentation extends Instrumentation {
@@ -66,6 +64,7 @@ public class SettingsInstrumentation extends Instrumentation {
 
     @SuppressWarnings("FieldCanBeLocal")
     private final ClassLoader classLoader;
+
     private final Class<?> suiActivityClass;
     private final Constructor<?> suiActivityConstructor;
     private final Resources resources;
@@ -87,14 +86,10 @@ public class SettingsInstrumentation extends Instrumentation {
             }
 
             @Override
-            public void onLowMemory() {
-
-            }
+            public void onLowMemory() {}
 
             @Override
-            public void onTrimMemory(int level) {
-
-            }
+            public void onTrimMemory(int level) {}
         });
     }
 
@@ -103,7 +98,8 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @Override
-    public Activity newActivity(ClassLoader cl, String className, Intent intent) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
+    public Activity newActivity(ClassLoader cl, String className, Intent intent)
+            throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         LOGGER.v("newActivity: %s", className);
         if (suiActivityConstructor == null) {
             return original.newActivity(cl, className, intent);
@@ -117,11 +113,18 @@ public class SettingsInstrumentation extends Instrumentation {
         if (extras != null) {
             extras.setClassLoader(cl);
             if (extras.getInt(SHORTCUT_EXTRA, -1) != -1) {
-                LOGGER.v("creating SuiActivity");
-                try {
-                    return (Activity) suiActivityConstructor.newInstance(application, resources);
-                } catch (InvocationTargetException e) {
-                    LOGGER.e(e, "Cannot create activity");
+                String suiToken = extras.getString(SHORTCUT_EXTRA_TOKEN);
+                String realToken = BridgeServiceClient.getShortcutToken();
+
+                if (realToken != null && realToken.equals(suiToken)) {
+                    LOGGER.v("creating SuiActivity");
+                    try {
+                        return (Activity) suiActivityConstructor.newInstance(application, resources);
+                    } catch (InvocationTargetException e) {
+                        LOGGER.e(e, "Cannot create activity");
+                    }
+                } else {
+                    LOGGER.w("Invalid or missing SUI token in shortcut intent");
                 }
             }
         }
@@ -246,8 +249,7 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.P)
-    @NonNull
-    @Override
+    @NonNull @Override
     public Activity startActivitySync(@NonNull Intent intent, @Nullable Bundle options) {
         return original.startActivitySync(intent, options);
     }
@@ -328,7 +330,8 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @Override
-    public Application newApplication(ClassLoader cl, String className, Context context) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
+    public Application newApplication(ClassLoader cl, String className, Context context)
+            throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         return original.newApplication(cl, className, context);
     }
 
@@ -338,8 +341,42 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @Override
-    public Activity newActivity(Class<?> clazz, Context context, IBinder token, Application application, Intent intent, ActivityInfo info, CharSequence title, Activity parent, String id, Object lastNonConfigurationInstance) throws IllegalAccessException, InstantiationException {
-        return original.newActivity(clazz, context, token, application, intent, info, title, parent, id, lastNonConfigurationInstance);
+    public Activity newActivity(
+            Class<?> clazz,
+            Context context,
+            IBinder token,
+            Application application,
+            Intent intent,
+            ActivityInfo info,
+            CharSequence title,
+            Activity parent,
+            String id,
+            Object lastNonConfigurationInstance)
+            throws IllegalAccessException, InstantiationException {
+        LOGGER.v("newActivity (10 args): %s", clazz.getName());
+        if (suiActivityConstructor != null) {
+            Bundle extras = intent.getExtras();
+            if (extras != null) {
+                extras.setClassLoader(clazz.getClassLoader());
+                if (extras.getInt(SHORTCUT_EXTRA, -1) != -1) {
+                    String suiToken = extras.getString(SHORTCUT_EXTRA_TOKEN);
+                    String realToken = BridgeServiceClient.getShortcutToken();
+
+                    if (realToken != null && realToken.equals(suiToken)) {
+                        LOGGER.v("creating SuiActivity from 10 args newActivity");
+                        try {
+                            return (Activity) suiActivityConstructor.newInstance(application, resources);
+                        } catch (InvocationTargetException e) {
+                            LOGGER.e(e, "Cannot create activity from 10 args");
+                        }
+                    } else {
+                        LOGGER.w("Invalid or missing SUI token in shortcut intent (10 args)");
+                    }
+                }
+            }
+        }
+        return original.newActivity(
+                clazz, context, token, application, intent, info, title, parent, id, lastNonConfigurationInstance);
     }
 
     @Override
@@ -375,7 +412,10 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @Override
-    public void callActivityOnRestoreInstanceState(@NonNull Activity activity, @Nullable Bundle savedInstanceState, @Nullable PersistableBundle persistentState) {
+    public void callActivityOnRestoreInstanceState(
+            @NonNull Activity activity,
+            @Nullable Bundle savedInstanceState,
+            @Nullable PersistableBundle persistentState) {
         LOGGER.d("callActivityOnRestoreInstanceState: %s", activity);
         if (savedInstanceState != null && suiActivityClass.isAssignableFrom(activity.getClass())) {
             savedInstanceState.setClassLoader(classLoader);
@@ -393,7 +433,10 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @Override
-    public void callActivityOnPostCreate(@NonNull Activity activity, @Nullable Bundle savedInstanceState, @Nullable PersistableBundle persistentState) {
+    public void callActivityOnPostCreate(
+            @NonNull Activity activity,
+            @Nullable Bundle savedInstanceState,
+            @Nullable PersistableBundle persistentState) {
         LOGGER.d("callActivityOnPostCreate: %s", activity);
         if (savedInstanceState != null && suiActivityClass.isAssignableFrom(activity.getClass())) {
             savedInstanceState.setClassLoader(classLoader);
@@ -442,7 +485,8 @@ public class SettingsInstrumentation extends Instrumentation {
     }
 
     @Override
-    public void callActivityOnSaveInstanceState(@NonNull Activity activity, @NonNull Bundle outState, @NonNull PersistableBundle outPersistentState) {
+    public void callActivityOnSaveInstanceState(
+            @NonNull Activity activity, @NonNull Bundle outState, @NonNull PersistableBundle outPersistentState) {
         LOGGER.d("callActivityOnSaveInstanceState: %s", activity);
         if (suiActivityClass.isAssignableFrom(activity.getClass())) {
             outState.setClassLoader(classLoader);
@@ -507,56 +551,96 @@ public class SettingsInstrumentation extends Instrumentation {
 
     @Keep
     public ActivityResult execStartActivity(
-            Context who, IBinder contextThread, IBinder token, Activity target,
-            Intent intent, int requestCode, Bundle options) {
+            Context who,
+            IBinder contextThread,
+            IBinder token,
+            Activity target,
+            Intent intent,
+            int requestCode,
+            Bundle options) {
         LOGGER.d("execStartActivity: %s", target);
-        return InstrumentationUtil.execStartActivity(original, who, contextThread, token, target, intent, requestCode, options);
+        return InstrumentationUtil.execStartActivity(
+                original, who, contextThread, token, target, intent, requestCode, options);
     }
 
     @Keep
-    public void execStartActivities(Context who, IBinder contextThread,
-                                    IBinder token, Activity target, Intent[] intents, Bundle options) {
+    public void execStartActivities(
+            Context who, IBinder contextThread, IBinder token, Activity target, Intent[] intents, Bundle options) {
         LOGGER.d("execStartActivities: %s", target);
         InstrumentationUtil.execStartActivities(original, who, contextThread, token, target, intents, options);
     }
 
     @Keep
-    public int execStartActivitiesAsUser(Context who, IBinder contextThread,
-                                         IBinder token, Activity target, Intent[] intents, Bundle options,
-                                         int userId) {
+    public int execStartActivitiesAsUser(
+            Context who,
+            IBinder contextThread,
+            IBinder token,
+            Activity target,
+            Intent[] intents,
+            Bundle options,
+            int userId) {
         LOGGER.d("execStartActivitiesAsUser: %s", target);
-        return InstrumentationUtil.execStartActivitiesAsUser(original, who, contextThread, token, target, intents, options, userId);
+        return InstrumentationUtil.execStartActivitiesAsUser(
+                original, who, contextThread, token, target, intents, options, userId);
     }
 
     @Keep
     public ActivityResult execStartActivity(
-            Context who, IBinder contextThread, IBinder token, String target,
-            Intent intent, int requestCode, Bundle options) {
+            Context who,
+            IBinder contextThread,
+            IBinder token,
+            String target,
+            Intent intent,
+            int requestCode,
+            Bundle options) {
         LOGGER.d("execStartActivity2: %s", target);
-        return InstrumentationUtil.execStartActivity(original, who, contextThread, token, target, intent, requestCode, options);
+        return InstrumentationUtil.execStartActivity(
+                original, who, contextThread, token, target, intent, requestCode, options);
     }
 
     @Keep
     public ActivityResult execStartActivity(
-            Context who, IBinder contextThread, IBinder token, String resultWho,
-            Intent intent, int requestCode, Bundle options, UserHandle user) {
+            Context who,
+            IBinder contextThread,
+            IBinder token,
+            String resultWho,
+            Intent intent,
+            int requestCode,
+            Bundle options,
+            UserHandle user) {
         LOGGER.d("execStartActivity3: %s", intent);
-        return InstrumentationUtil.execStartActivity(original, who, contextThread, token, resultWho, intent, requestCode, options, user);
+        return InstrumentationUtil.execStartActivity(
+                original, who, contextThread, token, resultWho, intent, requestCode, options, user);
     }
 
     @Keep
     public ActivityResult execStartActivityAsCaller(
-            Context who, IBinder contextThread, IBinder token, Activity target,
-            Intent intent, int requestCode, Bundle options,
-            boolean ignoreTargetSecurity, int userId) {
+            Context who,
+            IBinder contextThread,
+            IBinder token,
+            Activity target,
+            Intent intent,
+            int requestCode,
+            Bundle options,
+            boolean ignoreTargetSecurity,
+            int userId) {
         LOGGER.d("execStartActivityAsCaller: %s", intent);
-        return InstrumentationUtil.execStartActivityAsCaller(original, who, contextThread, token, target, intent, requestCode, options, ignoreTargetSecurity, userId);
+        return InstrumentationUtil.execStartActivityAsCaller(
+                original,
+                who,
+                contextThread,
+                token,
+                target,
+                intent,
+                requestCode,
+                options,
+                ignoreTargetSecurity,
+                userId);
     }
 
     @Keep
     public void execStartActivityFromAppTask(
-            Context who, IBinder contextThread, IAppTask appTask,
-            Intent intent, Bundle options) {
+            Context who, IBinder contextThread, IAppTask appTask, Intent intent, Bundle options) {
         LOGGER.d("execStartActivityFromAppTask: %s", intent);
         InstrumentationUtil.execStartActivityFromAppTask(original, who, contextThread, appTask, intent, options);
     }

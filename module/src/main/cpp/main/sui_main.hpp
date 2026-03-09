@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 #include <cstdlib>
@@ -23,12 +23,14 @@
 #include <unistd.h>
 #include <sched.h>
 #include <app_process.h>
+#include <misc.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 /*
  * argv[1]: path of the module, such as /data/adb/modules/zygisk-sui
  */
-static int sui_main(int argc, char **argv) {
+static int sui_main(int argc, char** argv) {
     LOGI("Sui starter begin: %s", argv[1]);
 
     if (daemon(false, false) != 0) {
@@ -36,12 +38,25 @@ static int sui_main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    {
+        int fd = open("/proc/self/oom_score_adj", O_WRONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            const char value[] = "-1000";
+            if (write_full(fd, value, sizeof(value) - 1) != 0) {
+                LOGW("write /proc/self/oom_score_adj failed with %d: %s", errno, strerror(errno));
+            }
+            close(fd);
+        } else {
+            LOGW("open /proc/self/oom_score_adj failed with %d: %s", errno, strerror(errno));
+        }
+    }
+
     wait_for_zygote();
 
     if (access("/data/adb/sui", F_OK) != 0) {
-        mkdir("/data/adb/sui", 0600);
+        mkdir("/data/adb/sui", 0700);
     }
-    chmod("/data/adb/sui", 0600);
+    chmod("/data/adb/sui", 0700);
     chown("/data/adb/sui", 0, 0);
 
     auto root_path = argv[1];

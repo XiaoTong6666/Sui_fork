@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="miuix_tag_top_padding" type="id" />
+    <item name="miuix_tag_bottom_padding" type="id" />
+    <item name="miuix_tag_min_height" type="id" />
+</resources>

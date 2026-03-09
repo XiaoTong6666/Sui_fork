@@ -1,5 +1,23 @@
+/*
+ * This file is part of Sui.
+ *
+ * Sui is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Sui is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Copyright (c) 2026 Sui Contributors
+ */
+
 import org.apache.tools.ant.filters.FixCrLfFilter
-import org.apache.tools.ant.filters.ReplaceTokens
 
 import java.security.MessageDigest
 
@@ -12,13 +30,15 @@ apply from: file(rootProject.file('module.gradle'))
 
 android {
     namespace "rikka.sui"
-    compileSdk rootProject.ext.targetSdkVersion
     defaultConfig {
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode gitCommitCount
         versionName moduleVersion.substring(1)
-        //ndkVersion rootProject.ext.ndkVersion
+        externalNativeBuild {
+            cmake {
+                arguments "-DZYGISK_MODULE_ID:STRING=\"$moduleId\"",
+                        "-DANDROID_STL=none"
+            }
+        }
     }
     buildFeatures {
         viewBinding true
@@ -27,43 +47,21 @@ android {
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
-            version "3.10.2"
+            version "3.31.0+"
         }
     }
     buildTypes {
         debug {
-            defaultConfig.minSdk 24
+            defaultConfig.minSdk 23
             multiDexEnabled false
         }
         release {
             minifyEnabled true
+            shrinkResources false
+            multiDexEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-    }
-    flavorDimensions "version"
-    productFlavors {
-        riru {
-            dimension "version"
-            externalNativeBuild {
-                cmake {
-                    arguments "-DRIRU_MODULE_API_VERSION=$moduleRiruApiVersion",
-                            "-DRIRU_MODULE_VERSION=$moduleVersionCode",
-                            "-DRIRU_MODULE_VERSION_NAME:STRING=\"$moduleVersion\"",
-                            "-DFLAVOR=riru",
-                            "-DANDROID_STL=none"
-
-                }
-            }
-        }
-        zygisk {
-            dimension "version"
-            externalNativeBuild {
-                cmake {
-                    arguments "-DFLAVOR=zygisk",
-                            "-DZYGISK_MODULE_ID:STRING=\"$zygiskModuleId\"",
-                            "-DANDROID_STL=none"
-
-                }
+            ndk {
+                debugSymbolLevel 'SYMBOL_TABLE'
             }
         }
     }
@@ -78,13 +76,12 @@ android {
 dependencies {
     implementation libs.refine.runtime
 
-    implementation 'dev.rikka.ndk:riru:26.0.0'
-    implementation 'dev.rikka.ndk.thirdparty:cxx:1.2.0'
+    implementation 'org.lsposed.libcxx:libcxx:29.0.14206865'
     implementation 'dev.rikka.ndk.thirdparty:nativehelper:1.0.1'
-    implementation 'dev.rikka.rikkax.parcelablelist:parcelablelist:2.0.0'
+    implementation 'dev.rikka.rikkax.parcelablelist:parcelablelist:2.0.1'
 
-    implementation "androidx.annotation:annotation:1.3.0"
-    implementation 'androidx.core:core:1.9.0'
+    implementation "androidx.annotation:annotation:1.9.1"
+    implementation 'androidx.core:core:1.17.0'
 
     implementation project(':aidl')
     implementation project(':shared')
@@ -98,90 +95,49 @@ dependencies {
 
 def outDir = file("$rootDir/out")
 
-afterEvaluate {
-    def isIDE = properties.containsKey('android.injected.invoked.from.ide')
-    if (isIDE) {
-        println("Invoked from IDE")
-    } else {
-        println("Invoked from command line")
-    }
-
-    android.applicationVariants.all { variant ->
+androidComponents {
+    onVariants(selector().all(), { variant ->
         def variantCapped = variant.name.capitalize()
         def variantLowered = variant.name.toLowerCase()
-        def buildTypeCapped = variant.getBuildType().getName().capitalize()
-        def buildTypeLowered = variant.getBuildType().getName().toLowerCase()
-        def flavorCapped = variantCapped.replaceFirst(buildTypeCapped, "")
-        def flavorLowered = variantLowered.replaceFirst(buildTypeLowered, "")
+        def buildTypeCapped = variant.buildType.capitalize()
+        def buildTypeLowered = variant.buildType.toLowerCase()
 
-        def zipName = "sui-${flavorLowered}-${moduleVersion}-${buildTypeLowered}.zip"
-        def magiskDir = file("$outDir/${flavorLowered}_${buildTypeLowered}")
+        def zipName = "sui-${moduleVersion}_${moduleVersionCode.toString()}-${buildTypeLowered}.zip"
+        def magiskDir = file("$outDir/${buildTypeLowered}")
 
-        tasks.getByName("pre${variantCapped}Build").dependsOn(":ui:assemble${buildTypeCapped}")
-
-        task("prepareMagiskFiles${variantCapped}", type: Sync) {
-            dependsOn("assemble$variantCapped")
-
+        tasks.register("prepareMagiskFiles${variantCapped}", Sync) {
             def templatePath = "$rootDir/template/magisk_module"
 
             into magiskDir
             from(templatePath) {
-                exclude 'riru.sh', 'customize.sh', 'post-fs-data.sh', 'module.prop'
-            }
-            if (flavorLowered == 'riru') {
-                from(templatePath) {
-                    include 'riru.sh'
-                    filter(ReplaceTokens.class, tokens: [
-                            "RIRU_MODULE_LIB_NAME"             : moduleLibraryName,
-                            "RIRU_MODULE_API_VERSION"          : moduleRiruApiVersion.toString(),
-                            "RIRU_MODULE_MIN_API_VERSION"      : moduleMinRiruApiVersion.toString(),
-                            "RIRU_MODULE_MIN_RIRU_VERSION_NAME": moduleMinRiruVersionName,
-                    ])
-                    filter(FixCrLfFilter.class,
-                            eol: FixCrLfFilter.CrLf.newInstance("lf"))
-                }
-            }
-            from(templatePath) {
-                include 'customize.sh'
-                filter(ReplaceTokens.class, tokens: [
-                        "FLAVOR": flavorLowered,
-                ])
-                filter(FixCrLfFilter.class,
-                        eol: FixCrLfFilter.CrLf.newInstance("lf"))
-            }
-            from(templatePath) {
-                include 'post-fs-data.sh'
-                filter(ReplaceTokens.class, tokens: [
-                        "FLAVOR": flavorLowered,
-                ])
-                filter(FixCrLfFilter.class,
-                        eol: FixCrLfFilter.CrLf.newInstance("lf"))
+                exclude 'module.prop', 'action.sh'
             }
             from(templatePath) {
                 include 'module.prop'
                 expand([
-                        id         : (flavorLowered == "zygisk") ? zygiskModuleId : riruModuleId,
-                        name       : flavorCapped + " - " + moduleName,
-                        version    : moduleVersion,
+                        id         : moduleId,
+                        name       : moduleName,
+                        version    : "${moduleVersion} (${moduleVersionCode.toString()}-${buildTypeLowered})",
                         versionCode: moduleVersionCode.toString(),
                         author     : moduleAuthor,
-                        description: moduleDescription + " " + ((flavorLowered == "zygisk") ?
-                                "This module requires Magisk 24.0+ and Zygisk enabled. DO NOT add SystemUI and Settings to DenyList." :
-                                "This module requires Riru $moduleMinRiruVersionName or above."),
-                        updateJson : (flavorLowered == "zygisk") ?
-                                "https://rikkaapps.github.io/release/sui_zygisk.json" :
-                                "https://rikkaapps.github.io/release/sui_riru.json",
+                        description: moduleDescription,
+                        updateJson : "https://xiaotong6666.github.io/Sui/sui_zygisk.json",
                 ])
                 filter(FixCrLfFilter.class,
                         eol: FixCrLfFilter.CrLf.newInstance("lf"))
             }
+            from(templatePath) {
+                include 'action.sh'
+                filter(FixCrLfFilter.class,
+                        eol: FixCrLfFilter.CrLf.newInstance("lf"))
+            }
             from((buildTypeLowered == "release") ?
-                    "$buildDir/intermediates/dex/${variant.name}/minify${variantCapped}WithR8" :
-                    "$buildDir/intermediates/dex/${variant.name}/mergeDex$variantCapped") {
+                    "$buildDir/intermediates/dex/${variantLowered}/minify${variantCapped}WithR8" :
+                    "$buildDir/intermediates/dex/${variantLowered}/mergeDex$variantCapped") {
                 include 'classes.dex'
                 rename { 'sui.dex' }
             }
-            from("$buildDir/intermediates/stripped_native_libs/${variant.name}/out/lib") {
+            from("$buildDir/intermediates/stripped_native_libs/${variantLowered}/strip${variantCapped}DebugSymbols/out/lib") {
                 into 'lib'
             }
             from("${rootProject.findProject('ui').buildDir}/outputs/apk/$buildTypeLowered") {
@@ -197,35 +153,65 @@ afterEvaluate {
                     f.file.eachByte 4096, { bytes, size ->
                         md.update(bytes, 0, size)
                     }
-                    file(f.file.path + ".sha256sum").text = md.digest().encodeHex()
+                    file(f.file.path + ".sha256").text = md.digest().encodeHex()
                 }
             }
         }
 
-        task("zip${variantCapped}", type: Zip) {
+        tasks.register("zip${variantCapped}", Zip) {
             dependsOn("prepareMagiskFiles${variantCapped}")
             from magiskDir
             archiveFileName = zipName
             destinationDirectory = outDir
         }
 
-        task("push${variantCapped}", type: Exec) {
-            dependsOn("assemble${variantCapped}")
+        tasks.register("push${variantCapped}", Exec) {
             workingDir outDir
-            commandLine android.adbExecutable, "push", zipName, "/data/local/tmp/"
+            commandLine "adb", "push", zipName, "/data/local/tmp/"
         }
 
-        task("flash${variantCapped}", type: Exec) {
+        tasks.register("flash${variantCapped}", Exec) {
             dependsOn("push${variantCapped}")
-            commandLine android.adbExecutable, "shell", "su", "-c",
-                    "magisk --install-module /data/local/tmp/${zipName}"
+            commandLine "adb", "shell", "su -c 'magisk --install-module /data/local/tmp/${zipName}'"
         }
 
-        task("flashAndReboot${variantCapped}", type: Exec) {
+        tasks.register("flashWithKsud${variantCapped}", Exec) {
+            dependsOn("push${variantCapped}")
+            commandLine "adb", "shell", "su -c 'ksud module install /data/local/tmp/${zipName}'"
+        }
+
+        tasks.register("flashAndReboot${variantCapped}", Exec) {
             dependsOn("flash${variantCapped}")
-            commandLine android.adbExecutable, "shell", "reboot"
+            commandLine "adb", "shell", "reboot"
+            ignoreExitValue = true
         }
 
-        variant.assembleProvider.get().finalizedBy("zip${variantCapped}")
+        tasks.register("flashWithKsudAndReboot${variantCapped}", Exec) {
+            dependsOn("flashWithKsud${variantCapped}")
+            commandLine "adb", "shell", "reboot"
+            ignoreExitValue = true
+        }
+    })
+}
+
+afterEvaluate {
+    ['Debug', 'Release'].each { buildType ->
+        def buildTypeLowered = buildType.toLowerCase()
+
+        tasks.named("pre${buildType}Build").configure {
+            dependsOn(":ui:assemble${buildType}")
+        }
+
+        tasks.named("prepareMagiskFiles${buildType}").configure {
+            dependsOn("assemble${buildType}")
+        }
+
+        tasks.named("assemble${buildType}").configure {
+            finalizedBy("zip${buildType}")
+        }
+
+        tasks.named("push${buildType}").configure {
+            dependsOn("assemble${buildType}")
+        }
     }
 }

@@ -14,142 +14,184 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 package rikka.sui.management
 
+import android.content.Context
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.util.Log
+import android.util.TypedValue
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.AdapterView.OnItemSelectedListener
-import android.widget.ArrayAdapter
 import android.widget.TextView
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.graphics.ColorUtils
+import androidx.core.view.get
+import androidx.core.view.size
 import kotlinx.coroutines.Job
-import rikka.core.res.resolveColor
-import rikka.core.res.resolveColorStateList
-import rikka.html.text.toHtml
 import rikka.recyclerview.BaseViewHolder
-import rikka.recyclerview.BaseViewHolder.Creator
 import rikka.sui.R
 import rikka.sui.databinding.ManagementAppItemBinding
+import rikka.sui.ktx.resolveColor
 import rikka.sui.model.AppInfo
 import rikka.sui.server.SuiConfig
 import rikka.sui.util.AppIconCache
 import rikka.sui.util.BridgeServiceClient
+import rikka.sui.util.MiuixPopupDimOverlay
+import rikka.sui.util.MiuixPressHelper
+import rikka.sui.util.MiuixSmoothCardDrawable
+import rikka.sui.util.MiuixSquircleProvider
 import rikka.sui.util.UserHandleCompat
-import java.util.*
+import rikka.sui.util.applyMiuixPopupStyle
+import rikka.sui.util.colorCheckedItemsMiuixBlue
 
-class ManagementAppItemViewHolder(private val binding: ManagementAppItemBinding) : BaseViewHolder<AppInfo>(binding.root),
+class ManagementAppItemViewHolder(
+    private val binding: ManagementAppItemBinding,
+) : BaseViewHolder<AppInfo>(binding.root),
     View.OnClickListener {
-
     companion object {
-
-        val CREATOR = Creator<AppInfo> { inflater: LayoutInflater, parent: ViewGroup? ->
+        fun Creator() = Creator<AppInfo> { inflater: LayoutInflater, parent: ViewGroup? ->
             ManagementAppItemViewHolder(
-                ManagementAppItemBinding.inflate(
-                    inflater,
-                    parent,
-                    false
-                )
+                ManagementAppItemBinding.inflate(inflater, parent, false),
             )
         }
 
         private val SANS_SERIF = Typeface.create("sans-serif", Typeface.NORMAL)
         private val SANS_SERIF_MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+
+        private var lastMenuClickTime = 0L
+        private var lastPopupDismissTime = 0L
     }
 
     private inline val packageName get() = data.packageInfo.packageName
     private inline val ai get() = data.packageInfo.applicationInfo
-    private inline val uid get() = ai.uid
+    private inline val uid get() = ai!!.uid
 
     private var loadIconJob: Job? = null
+    private var suppressSelectionCallback = false
+    private var activePopupMenu: PopupMenu? = null
 
     private val icon get() = binding.icon
     private val name get() = binding.title
     private val pkg get() = binding.summary
-    private val spinner get() = binding.button1
+    private val statusText get() = binding.button1 as TextView
 
-    private val textColorSecondary = context.theme.resolveColorStateList(android.R.attr.textColorSecondary)
-    private val textColorPrimary = context.theme.resolveColorStateList(android.R.attr.textColorPrimary)
+    private val textColorSecondary: ColorStateList
+    private val textColorPrimary: ColorStateList
 
-    private val optionsAdapter: ArrayAdapter<CharSequence>
+    private val iconSize: Int
 
     init {
-        itemView.setOnClickListener(this)
+        val typedValue = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.textColorSecondary, typedValue, true)
+        textColorSecondary = context.getColorStateList(typedValue.resourceId)
 
-        val context = binding.root.context
-        val theme = context.theme
-        val isNight = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_YES != 0
-        val colorAccent = theme.resolveColor(androidx.appcompat.R.attr.colorAccent)
-        val colorForeground = theme.resolveColor(android.R.attr.colorForeground)
-        val textColorTertiary = theme.resolveColorStateList(android.R.attr.textColorTertiary)
-        val colorError = if (isNight) 0xFF8A80 else 0xFF5252
+        context.theme.resolveAttribute(android.R.attr.textColorPrimary, typedValue, true)
+        textColorPrimary = context.getColorStateList(typedValue.resourceId)
 
-        this.optionsAdapter = object : ArrayAdapter<CharSequence>(
-            binding.button1.context,
-            android.R.layout.simple_spinner_item,
-            arrayOf(
-                String.format(
-                    "<font face=\"sans-serif-medium\" color=\"#%2\$s\">%1\$s</font>",
-                    context.getString(R.string.permission_allowed),
-                    String.format(Locale.ENGLISH, "%06x", colorAccent and 0xffffff)
-                ).toHtml(),
-                String.format(
-                    "<font face=\"sans-serif-medium\" color=\"#%2\$s\">%1\$s</font>",
-                    context.getString(R.string.permission_denied),
-                    String.format(Locale.ENGLISH, "%06x", colorError and 0xffffff)
-                ).toHtml(),
-                String.format(
-                    "<font face=\"sans-serif-medium\" color=\"#%2\$s\">%1\$s</font>",
-                    context.getString(R.string.permission_hidden),
-                    String.format(Locale.ENGLISH, "%06x", colorForeground and 0xffffff)
-                ).toHtml(),
-                context.getString(R.string.permission_ask)
-            )
-        ) {
-            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                return if (convertView == null) {
-                    val view = super.getView(position, convertView, parent)
-                    val textView = view.findViewById<TextView>(android.R.id.text1)
-                    textView.setTextColor(textColorTertiary)
-                    textView.gravity = Gravity.CENTER_VERTICAL or Gravity.END
-                    view
-                } else {
-                    super.getView(position, convertView, parent)
-                }
-            }
+        var normalColor = context.getColor(R.color.miuix_card_normal)
+        val isNight = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val prefs = context.getSharedPreferences("sui_settings", Context.MODE_PRIVATE)
+        if (!isNight && prefs.getBoolean("monet_enabled", true)) {
+            val primaryColor = context.theme.resolveColor(androidx.appcompat.R.attr.colorPrimary)
+            normalColor = ColorUtils.blendARGB(normalColor, primaryColor, 0.10f)
         }
-        this.optionsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        this.itemView.background = MiuixSmoothCardDrawable.createSelectorWithOverlay(
+            context,
+            normalColor,
+        )
 
-        this.itemView.setOnClickListener { spinner.performClick() }
+        this.itemView.setOnClickListener { showPopupMenu() }
+        this.itemView.setOnTouchListener(MiuixPressHelper())
+
+        iconSize = context.resources.getDimensionPixelSize(rikka.sui.R.dimen.expected_app_icon_max_size)
+
+        icon.outlineProvider = MiuixSquircleProvider(10.5f)
+        icon.clipToOutline = true
     }
 
-    private val onItemSelectedListener: OnItemSelectedListener = object : OnItemSelectedListener {
-        override fun onItemSelected(parent: AdapterView<*>, view: View, position: Int, id: Long) {
-            val newValue = when (position) {
-                0 -> SuiConfig.FLAG_ALLOWED
-                1 -> SuiConfig.FLAG_DENIED
-                2 -> SuiConfig.FLAG_HIDDEN
-                else -> 0
-            }
-            try {
-                BridgeServiceClient.getService()
-                    .updateFlagsForUid(data.packageInfo.applicationInfo.uid, SuiConfig.MASK_PERMISSION, newValue)
-            } catch (e: Throwable) {
-                Log.e("SuiSettings", "updateFlagsForUid", e)
-                return
-            }
-            data.flags = data.flags and SuiConfig.MASK_PERMISSION.inv() or newValue
-            parent.setSelection(position)
-            syncViewStateForFlags()
+    private fun showPopupMenu() {
+        val currentTime = SystemClock.elapsedRealtime()
+        if (currentTime - lastPopupDismissTime < 200 || currentTime - lastMenuClickTime < 300) {
+            return
+        }
+        lastMenuClickTime = currentTime
+
+        if (activePopupMenu != null) {
+            activePopupMenu?.dismiss()
+            activePopupMenu = null
+            return
         }
 
-        override fun onNothingSelected(parent: AdapterView<*>?) {}
+        val contextWrapper = ContextThemeWrapper(context, R.style.Theme_Sui_PopupMenu)
+        val popupMenu = PopupMenu(contextWrapper, statusText, Gravity.END)
+        activePopupMenu = popupMenu
+        popupMenu.inflate(R.menu.app_item_options_menu)
+
+        statusText.isActivated = true
+
+        var activityContext = itemView.context
+        while (activityContext is android.content.ContextWrapper) {
+            if (activityContext is android.app.Activity) break
+            activityContext = activityContext.baseContext
+        }
+        if (activityContext is android.app.Activity) {
+            MiuixPopupDimOverlay.show(activityContext)
+        }
+
+        popupMenu.setOnDismissListener {
+            statusText.isActivated = false
+            MiuixPopupDimOverlay.hide()
+            lastPopupDismissTime = SystemClock.elapsedRealtime()
+            if (activePopupMenu === popupMenu) {
+                activePopupMenu = null
+            }
+        }
+
+        val explicitFlags = data.flags and SuiConfig.MASK_PERMISSION
+        val currentSelection = when {
+            explicitFlags and SuiConfig.FLAG_ALLOWED != 0 -> 0
+            explicitFlags and SuiConfig.FLAG_DENIED != 0 -> 1
+            explicitFlags and SuiConfig.FLAG_HIDDEN != 0 -> 2
+            else -> 3
+        }
+
+        val menu = popupMenu.menu
+        if (currentSelection < menu.size) {
+            menu[currentSelection].isChecked = true
+        }
+
+        popupMenu.setOnMenuItemClickListener { item ->
+            val newValue = when (item.itemId) {
+                R.id.action_allow -> SuiConfig.FLAG_ALLOWED
+                R.id.action_deny -> SuiConfig.FLAG_DENIED
+                R.id.action_hidden -> SuiConfig.FLAG_HIDDEN
+                R.id.action_default -> 0
+                else -> return@setOnMenuItemClickListener false
+            }
+
+            try {
+                BridgeServiceClient
+                    .getService()
+                    .updateFlagsForUid(uid, SuiConfig.MASK_PERMISSION, newValue)
+            } catch (e: Throwable) {
+                Log.e("SuiSettings", "updateFlagsForUid", e)
+            }
+
+            data.flags = data.flags and SuiConfig.MASK_PERMISSION.inv() or newValue
+            syncViewStateForFlags()
+            true
+        }
+
+        popupMenu.colorCheckedItemsMiuixBlue(itemView.context)
+        popupMenu.applyMiuixPopupStyle()
     }
 
     override fun onClick(v: View) {
@@ -157,28 +199,25 @@ class ManagementAppItemViewHolder(private val binding: ManagementAppItemBinding)
     }
 
     override fun onBind() {
-        val pm = itemView.context.packageManager
+        loadIconJob?.cancel()
+
         val userId = UserHandleCompat.getUserId(uid)
 
-        icon.setImageDrawable(ai.loadIcon(pm))
-
-        loadIconJob = AppIconCache.loadIconBitmapAsync(context, ai, ai.uid / 100000, icon)
-
-        name.text = if (userId != UserHandleCompat.myUserId()) {
-            "${ai.loadLabel(pm)} - ($userId)"
+        val label = data.label
+        if (userId == UserHandleCompat.myUserId()) {
+            name.text = label
         } else {
-            ai.loadLabel(pm)
+            name.text = "$label - ($userId)"
         }
-        pkg.text = ai.packageName
 
-        spinner.adapter = optionsAdapter
-        spinner.onItemSelectedListener = onItemSelectedListener
+        pkg.text = ai!!.packageName
 
         syncViewStateForFlags()
+
+        loadIconJob = AppIconCache.loadIconBitmapAsync(context, ai!!, userId, icon, iconSize)
     }
 
-    override fun onBind(payloads: List<Any>) {
-    }
+    override fun onBind(payloads: List<Any>) {}
 
     override fun onRecycle() {
         if (loadIconJob?.isActive == true) {
@@ -187,25 +226,55 @@ class ManagementAppItemViewHolder(private val binding: ManagementAppItemBinding)
     }
 
     private fun syncViewStateForFlags() {
-        val allowed = data.flags and SuiConfig.FLAG_ALLOWED != 0
-        val denied = data.flags and SuiConfig.FLAG_DENIED != 0
-        val hidden = data.flags and SuiConfig.FLAG_HIDDEN != 0
+        val explicitFlags = data.flags and SuiConfig.MASK_PERMISSION
+        val effectiveFlags =
+            if (explicitFlags != 0) {
+                explicitFlags
+            } else {
+                data.defaultFlags and SuiConfig.MASK_PERMISSION
+            }
+        val allowed = effectiveFlags and SuiConfig.FLAG_ALLOWED != 0
+        val denied = effectiveFlags and SuiConfig.FLAG_DENIED != 0
+        val hidden = effectiveFlags and SuiConfig.FLAG_HIDDEN != 0
+
         if (allowed) {
             binding.title.setTextColor(textColorPrimary)
             binding.title.typeface = SANS_SERIF_MEDIUM
-            binding.button1.setSelection(0)
         } else if (denied) {
             binding.title.setTextColor(textColorSecondary)
-            binding.title.typeface = SANS_SERIF
-            binding.button1.setSelection(1)
+            binding.title.typeface = SANS_SERIF_MEDIUM
         } else if (hidden) {
             binding.title.setTextColor(textColorSecondary)
-            binding.title.typeface = SANS_SERIF
-            binding.button1.setSelection(2)
+            binding.title.typeface = SANS_SERIF_MEDIUM
         } else {
             binding.title.setTextColor(textColorSecondary)
-            binding.title.typeface = SANS_SERIF
-            binding.button1.setSelection(3)
+            binding.title.typeface = SANS_SERIF_MEDIUM
         }
+
+        val explicitAllowed = explicitFlags and SuiConfig.FLAG_ALLOWED != 0
+        val explicitDenied = explicitFlags and SuiConfig.FLAG_DENIED != 0
+        val explicitHidden = explicitFlags and SuiConfig.FLAG_HIDDEN != 0
+
+        val textRes = when {
+            explicitAllowed -> R.string.permission_allowed
+            explicitDenied -> R.string.permission_denied
+            explicitHidden -> R.string.permission_hidden
+            else -> R.string.permission_default
+        }
+
+        if (explicitAllowed) {
+            statusText.setTextColor(context.theme.resolveColor(androidx.appcompat.R.attr.colorAccent))
+        } else if (explicitDenied) {
+            val isNight = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_YES != 0
+            statusText.setTextColor(if (isNight) 0xFFFF8A80.toInt() else 0xFFFF5252.toInt())
+        } else if (explicitHidden) {
+            statusText.setTextColor(context.theme.resolveColor(android.R.attr.colorForeground))
+        } else {
+            val typedValue = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.textColorTertiary, typedValue, true)
+            statusText.setTextColor(context.getColorStateList(typedValue.resourceId))
+        }
+
+        statusText.setText(textRes)
     }
 }

@@ -14,20 +14,17 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
-
 package rikka.sui;
 
 import android.app.ActivityManager;
 import android.app.Application;
 import android.content.res.Resources;
+import android.os.Build;
 import android.os.Bundle;
-
 import androidx.annotation.Nullable;
-
 import java.util.Objects;
-
 import rikka.sui.app.AppActivity;
 import rikka.sui.management.ManagementFragment;
 
@@ -38,16 +35,48 @@ public class SuiActivity extends AppActivity {
     }
 
     @Override
+    public android.content.ComponentName getComponentName() {
+        return new android.content.ComponentName(
+                getPackageName(), "com.android.settings.Settings$WifiSettingsActivity");
+    }
+
+    private int resolveThemeColor(@androidx.annotation.AttrRes int attrRes) {
+        android.util.TypedValue typedValue = new android.util.TypedValue();
+        getTheme().resolveAttribute(attrRes, typedValue, true);
+        return typedValue.data;
+    }
+
+    @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        if (savedInstanceState != null) {
+            savedInstanceState.remove("android:support:fragments");
+            savedInstanceState.remove("android:fragments");
+        }
         super.onCreate(savedInstanceState);
+
         setContentView(R.layout.main);
         setTitle("Sui");
         Objects.requireNonNull(getSupportActionBar()).setSubtitle(BuildConfig.VERSION_NAME);
 
-        getSupportFragmentManager().beginTransaction()
-                .replace(R.id.fragment_container, new ManagementFragment())
-                .commit();
+        if (getSupportFragmentManager().findFragmentById(R.id.fragment_container) == null) {
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.fragment_container, new ManagementFragment())
+                    .commit();
+        }
+        invalidateOptionsMenu();
 
-        setTaskDescription(new ActivityManager.TaskDescription("Sui"));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU /*API33/A13*/) {
+            ActivityManager.TaskDescription taskDescription = new ActivityManager.TaskDescription.Builder()
+                    .setLabel("Sui")
+                    .setPrimaryColor(resolveThemeColor(androidx.appcompat.R.attr.colorPrimary))
+                    .build();
+            setTaskDescription(taskDescription);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P /*API28/A9*/) {
+            setTaskDescription(new ActivityManager.TaskDescription(
+                    "Sui", 0, resolveThemeColor(androidx.appcompat.R.attr.colorPrimary)));
+        } else {
+            setTaskDescription(new ActivityManager.TaskDescription("Sui"));
+        }
     }
 }

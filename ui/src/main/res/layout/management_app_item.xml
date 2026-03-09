@@ -1,23 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ This file is part of Sui.
+  ~
+  ~ Sui is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Sui is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+  ~
+  ~ Copyright (c) 2026 Sui Contributors
+  -->
+
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:animateLayoutChanges="true"
-    android:background="?android:selectableItemBackground"
+    android:layout_marginStart="12dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginTop="12dp"
+    android:layout_marginBottom="0dp"
+    android:clickable="true"
     android:clipChildren="false"
+    android:clipToOutline="true"
     android:clipToPadding="false"
-    android:minHeight="64dp"
+    android:focusable="true"
+    android:minHeight="70dp"
     android:orientation="horizontal"
-    android:paddingTop="16dp"
-    android:paddingBottom="16dp">
+    android:paddingStart="16dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="8dp">
 
     <ImageView
         android:id="@android:id/icon"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_gravity="center_vertical"
-        android:layout_marginStart="?android:listPreferredItemPaddingStart"
+        android:layout_marginEnd="14dp"
+        android:scaleType="centerCrop"
         android:contentDescription="@null"
         tools:src="@tools:sample/avatars" />
 
@@ -25,7 +52,6 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center_vertical"
-        android:layout_marginStart="24dp"
         android:layout_marginEnd="8dp"
         android:layout_weight="1"
         android:gravity="center_vertical"
@@ -35,30 +61,36 @@
             android:id="@android:id/title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:drawablePadding="8dp"
+            android:includeFontPadding="false"
             android:maxLines="1"
-            android:textAppearance="@android:style/TextAppearance.Material"
-            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:textSize="17sp"
             tools:text="Example" />
 
         <TextView
             android:id="@android:id/summary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:includeFontPadding="false"
             android:ellipsize="marquee"
-            android:lineSpacingExtra="1sp"
             android:singleLine="true"
-            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:textSize="12sp"
             tools:text="com.example" />
 
     </LinearLayout>
 
-    <Spinner
+    <TextView
         android:id="@android:id/button1"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:background="@null" />
+        android:gravity="center_vertical|end"
+        android:drawableEnd="@drawable/ic_miuix_dropdown_arrow"
+        android:drawablePadding="4dp"
+        android:drawableTint="?android:attr/textColorTertiary"
+        android:textColor="?android:attr/textColorTertiary"
+        android:textSize="14sp"
+        tools:text="Default" />
 
 </LinearLayout>

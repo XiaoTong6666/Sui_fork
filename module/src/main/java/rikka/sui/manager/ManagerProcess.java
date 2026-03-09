@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.manager;
@@ -29,16 +29,16 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.RemoteException;
-
+import android.provider.Telephony;
+import android.telephony.TelephonyManager;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
-
 import moe.shizuku.server.IShizukuApplication;
 import moe.shizuku.server.IShizukuService;
-import rikka.shizuku.ShizukuApiConstants;
 import rikka.sui.resource.SuiApk;
 import rikka.sui.server.ServerConstants;
 import rikka.sui.shortcut.SuiShortcut;
@@ -52,18 +52,16 @@ public class ManagerProcess {
     private static final IShizukuApplication APPLICATION = new IShizukuApplication.Stub() {
 
         @Override
-        public void bindApplication(Bundle data) {
-
-        }
+        public void bindApplication(Bundle data) {}
 
         @Override
-        public void dispatchRequestPermissionResult(int requestCode, Bundle data) {
-
-        }
+        public void dispatchRequestPermissionResult(int requestCode, Bundle data) {}
 
         @Override
-        public void showPermissionConfirmation(int requestUid, int requestPid, String requestPackageName, int requestCode) {
-            LOGGER.i("showPermissionConfirmation: %d %d %s %d", requestUid, requestPid, requestPackageName, requestCode);
+        public void showPermissionConfirmation(
+                int requestUid, int requestPid, String requestPackageName, int requestCode) {
+            LOGGER.i(
+                    "showPermissionConfirmation: %d %d %s %d", requestUid, requestPid, requestPackageName, requestCode);
 
             if (suiApk == null) {
                 LOGGER.e("Cannot load apk");
@@ -71,13 +69,38 @@ public class ManagerProcess {
             }
 
             try {
-                suiApk.getSuiRequestPermissionDialogConstructor().newInstance(
-                        ActivityThread.currentActivityThread().getApplication(), suiApk.getResources(),
-                        requestUid, requestPid, requestPackageName, requestCode
-                );
+                suiApk.getSuiRequestPermissionDialogConstructor()
+                        .newInstance(
+                                ActivityThread.currentActivityThread().getApplication(),
+                                suiApk.getResources(),
+                                requestUid,
+                                requestPid,
+                                requestPackageName,
+                                requestCode);
             } catch (IllegalAccessException | InstantiationException | InvocationTargetException e) {
                 LOGGER.e(e, "showPermissionConfirmation");
             }
+        }
+
+        @Override
+        public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
+            if (code == ServerConstants.BINDER_TRANSACTION_SEND_SHORTCUT_BROADCAST) {
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                    try {
+                        Context context = ActivityThread.currentActivityThread().getApplication();
+                        if (context != null) {
+                            LOGGER.i("Sending shortcut creation broadcast...");
+                            Intent intent = new Intent("rikka.sui.ACTION_REQUEST_PINNED_SHORTCUT");
+                            intent.setPackage("com.android.settings");
+                            context.sendBroadcast(intent);
+                        }
+                    } catch (Throwable e) {
+                        LOGGER.e(e, "Failed to send shortcut creation broadcast");
+                    }
+                });
+                return true;
+            }
+            return super.onTransact(code, data, reply, flags);
         }
     };
 
@@ -85,11 +108,20 @@ public class ManagerProcess {
         Context context;
         try {
             context = ActivityThread.currentActivityThread().getApplication();
-            if (intent == null) {
-                intent = SuiShortcut.getIntent(context, true);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            LOGGER.i("Fetching secure token from Sui Service...");
+
+            String token = BridgeServiceClient.getShortcutToken();
+
+            if (token == null) {
+                LOGGER.e("Failed to retrieve token from Sui Service");
+                return;
             }
+
+            Intent intent = SuiShortcut.getIntent(context, true, token);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
+            LOGGER.v("Sui UI launched with verified token from Sui Service");
         } catch (Throwable e) {
             LOGGER.w(e, "showManagement");
         }
@@ -118,13 +150,23 @@ public class ManagerProcess {
 
         try {
             service.attachApplication(APPLICATION, args);
-            LOGGER.i("attachApplication");
+            service.asBinder()
+                    .linkToDeath(
+                            () -> {
+                                LOGGER.w("Sui daemon died, schedule reconnection...");
+                                WorkerHandler.get().postDelayed(ManagerProcess::sendToService, 1000);
+                            },
+                            0);
+            LOGGER.i("attachApplication and linkToDeath successfully");
         } catch (RemoteException e) {
-            LOGGER.w(e, "attachApplication");
+            LOGGER.w(e, "attachApplication or linkToDeath failed");
             WorkerHandler.get().postDelayed(ManagerProcess::sendToService, 1000);
+            return;
         }
 
-        suiApk = SuiApk.createForSystemUI();
+        if (suiApk == null) {
+            suiApk = SuiApk.createForSystemUI();
+        }
     }
 
     private static void registerListener() {
@@ -144,14 +186,17 @@ public class ManagerProcess {
         WorkerHandler.get().post(ManagerProcess::sendToService);
 
         IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction("android.provider.Telephony.SECRET_CODE");
-        //intentFilter.addAction("android.telephony.action.SECRET_CODE");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            intentFilter.addAction(TelephonyManager.ACTION_SECRET_CODE);
+        } else {
+            intentFilter.addAction(Telephony.Sms.Intents.SECRET_CODE_ACTION);
+        }
         intentFilter.addDataAuthority("784784", null);
         intentFilter.addDataScheme("android_secret_code");
 
         try {
-            context.registerReceiver(SHOW_MANAGEMENT_RECEIVER, intentFilter,
-                    "android.permission.CONTROL_INCALL_EXPERIENCE", null);
+            context.registerReceiver(
+                    SHOW_MANAGEMENT_RECEIVER, intentFilter, "android.permission.CONTROL_INCALL_EXPERIENCE", null);
             LOGGER.i("registerReceiver android.provider.Telephony.SECRET_CODE");
         } catch (Exception e) {
             LOGGER.w(e, "registerReceiver android.provider.Telephony.SECRET_CODE");

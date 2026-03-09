@@ -1,6 +1,7 @@
 # Sui
+[🇨🇳中文README](https://github.com/XiaoTong6666/Sui/blob/main/README.zh-CN.md)    
 
-Modern super user interface (SUI) implementation on Android. <del>The name, Sui, also comes from [a character](https://www.pixiv.net/artworks/71435059).</del>
+Modern super user interface (SUI) implementation on Android. <del>The name, Sui, also comes from [a character](https://github.com/XiaoTong6666/Sui/issues/1).</del>
 
 ## Introduction
 
@@ -35,15 +36,16 @@ Note, the behavior of existing apps that only supports "su" will NOT change.
 
 ### Install
 
-You can download and install Sui from Magisk directly. Or, download the zip from [release](https://github.com/RikkaApps/Sui/releases/) and use "Install from storage" in Magisk.
+You can download and install Sui from Magisk directly. Or, download the zip from [release](https://github.com/XiaoTong6666/Sui/releases) and use "Install from storage" in Magisk.
 
 ### Management UI
 
-- (Android 8.0+, Sui 12.1+) Long press system settings from the home app, you will find the shortcut of Sui
-- (Android 8.0+, Sui 12+) Enter "Developer options" in system settings, the system will ask you to add the shortcut of Sui
+- Long press the **System Settings** icon on the home screen to see the Sui shortcut
+- In the Sui management interface, tap the menu button (three dots) in the top-right corner and select **"Add shortcut to home screen"**
 - Enter `*#*#784784#*#*` in the default dialer app
+- Open the Sui management interface via the **Action** button in the KernelSU/Magisk manager
 
-Note, the shortcut way requires your home app supports shortcut APIs that adds from Android 7.0 and 8.0. Unless you are using a old home app, you can the shortcut with no problem.
+> **Note:** On some systems, the Sui shortcut may not appear when long-pressing Settings. Additionally, to avoid disturbance, the feature that automatically prompts to add a shortcut when entering "Developer options" has been **removed** in this version.
 
 ### Interactive shell
 
@@ -63,27 +65,40 @@ Clone with `git clone --recurse-submodules`.
 
 Gradle tasks:
 
-`Flavor` could be `Riru` and `Zygisk`, and `BuildType` could be `Debug` and `Release`.
+`BuildType` could be `Debug` and `Release`.
 
-* `:module:assemble<Flavor><BuildType>`
+* `:module:assemble<BuildType>`
 
-   Generate Magisk module zip to `out`.
+  Build the module. After assemble finishes, Magisk module zip will be generated to `out`.
 
-* `:module:push<Flavor><BuildType>`
+* `:module:zip<BuildType>`
 
-   Push the zip with adb to `/data/local/tmp`.
+  Generate Magisk module zip to `out`.
 
-* `:module:flash<Flavor><BuildType>`
+* `:module:push<BuildType>`
 
-   Install the zip with `adb shell su -c magisk --install-module`.
+  Push the zip with adb to `/data/local/tmp`.
 
-* `:module:flashAndReboot<Flavor><BuildType>`
+* `:module:flash<BuildType>`
 
-   Install the zip and reboot the device.
+  Install the zip with `adb shell su -c magisk --install-module`.
+
+* `:module:flashWithKsud<BuildType>`
+
+  Install the zip with `adb shell su -c ksud module install`.
+
+* `:module:flashAndReboot<BuildType>`
+
+  Install the zip and reboot the device.
+
+* `:module:flashWithKsudAndReboot<BuildType>`
+
+  Install the zip with ksud and reboot the device.
+
 
 ## Internals
 
-Sui requires [Magisk](https://github.com/topjohnwu/Magisk) (and [Riru](https://github.com/RikkaApps) for non-Zygisk version). Magisk allows us to run processes as uid 0 and a "do anything" SELinux context. Riru or Zygisk allows us to inject into system server process and app processes.
+Sui requires [Zygisk](https://github.com/topjohnwu/zygisk-module-sample). Zygisk allows us to inject into system server process and app processes.
 
 In short, there are four parts:
 

@@ -14,32 +14,90 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 package rikka.sui.management
 
+import android.content.Context
+import android.view.View
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import me.zhanghai.android.fastscroll.PopupTextProvider
 import rikka.recyclerview.BaseRecyclerViewAdapter
 import rikka.recyclerview.ClassCreatorPool
 import rikka.sui.model.AppInfo
 
-class ManagementAdapter : BaseRecyclerViewAdapter<ClassCreatorPool>() {
+class ManagementAdapter(
+    context: Context,
+) : BaseRecyclerViewAdapter<ClassCreatorPool>(),
+    PopupTextProvider {
+
+    private val adapterScope = MainScope()
+    private var updateJob: Job? = null
 
     init {
-        creatorPool.putRule(AppInfo::class.java, ManagementAppItemViewHolder.CREATOR)
+        creatorPool.putRule(AppInfo::class.java, ManagementAppItemViewHolder.Creator())
         setHasStableIds(true)
     }
 
-    override fun getItemId(position: Int): Long {
-        return getItemAt<Any>(position).hashCode().toLong()
-    }
+    override fun getItemId(position: Int): Long = getItemAt<Any>(position).hashCode().toLong()
 
-    override fun onCreateCreatorPool(): ClassCreatorPool {
-        return ClassCreatorPool()
-    }
+    override fun onCreateCreatorPool(): ClassCreatorPool = ClassCreatorPool()
 
     fun updateData(data: List<AppInfo>) {
-        getItems<Any>().clear()
-        getItems<Any>().addAll(data)
-        notifyDataSetChanged()
+        updateJob?.cancel()
+
+        val newData = java.util.ArrayList<Any>(data)
+
+        updateJob = adapterScope.launch(Dispatchers.Default) {
+            val oldData = withContext(Dispatchers.Main) {
+                java.util.ArrayList(getItems<Any>())
+            }
+
+            val result = androidx.recyclerview.widget.DiffUtil.calculateDiff(object : androidx.recyclerview.widget.DiffUtil.Callback() {
+                override fun getOldListSize(): Int = oldData.size
+
+                override fun getNewListSize(): Int = newData.size
+
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val oldItem = oldData[oldItemPosition]
+                    val newItem = newData[newItemPosition]
+                    if (oldItem is AppInfo && newItem is AppInfo) {
+                        return oldItem.packageInfo.packageName == newItem.packageInfo.packageName &&
+                            oldItem.packageInfo.applicationInfo?.uid == newItem.packageInfo.applicationInfo?.uid
+                    }
+                    return oldItem == newItem
+                }
+
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val oldItem = oldData[oldItemPosition]
+                    val newItem = newData[newItemPosition]
+                    return oldItem == newItem
+                }
+            })
+
+            withContext(Dispatchers.Main) {
+                if (isActive) {
+                    val itemsList = getItems<Any>()
+                    itemsList.clear()
+                    itemsList.addAll(newData)
+                    result.dispatchUpdatesTo(this@ManagementAdapter)
+                }
+            }
+        }
     }
+
+    override fun onDetachedFromRecyclerView(recyclerView: androidx.recyclerview.widget.RecyclerView) {
+        super.onDetachedFromRecyclerView(recyclerView)
+        updateJob?.cancel()
+    }
+
+    override fun getPopupText(
+        view: View,
+        position: Int,
+    ): CharSequence = ""
 }

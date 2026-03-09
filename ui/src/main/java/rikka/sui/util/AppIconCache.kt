@@ -1,3 +1,22 @@
+/*
+ * This file is part of Sui.
+ *
+ * Sui is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Sui is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Copyright (c) 2026 Sui Contributors
+ */
+
 package rikka.sui.util
 
 import android.content.Context
@@ -7,29 +26,33 @@ import android.graphics.Bitmap
 import android.util.Log
 import android.widget.ImageView
 import androidx.collection.LruCache
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.zhanghai.android.appiconloader.AppIconLoader
-import rikka.sui.R
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.coroutines.CoroutineContext
 
 object AppIconCache : CoroutineScope {
 
-    private class AppIconLruCache constructor(maxSize: Int) : LruCache<Triple<String, Int, Int>, Bitmap>(maxSize) {
-
-        override fun sizeOf(key: Triple<String, Int, Int>, bitmap: Bitmap): Int {
-            return bitmap.byteCount / 1024
-        }
+    private class AppIconLruCache(maxSize: Int) : LruCache<String, Bitmap>(maxSize) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
 
     override val coroutineContext: CoroutineContext get() = Dispatchers.Main
 
-    private val lruCache: LruCache<Triple<String, Int, Int>, Bitmap>
+    private val lruCache: LruCache<String, Bitmap>
 
     private val dispatcher: CoroutineDispatcher
 
-    private var appIconLoaders = mutableMapOf<Int, AppIconLoader>()
+    private val appIconLoaders = ConcurrentHashMap<Int, AppIconLoader>()
 
     init {
         // Initialize app icon lru cache
@@ -44,26 +67,24 @@ object AppIconCache : CoroutineScope {
             1
         }
         val threadCount = 1.coerceAtLeast(availableProcessorsCount / 2)
-        val loadIconExecutor: Executor = Executors.newFixedThreadPool(threadCount)
+        val loadIconExecutor: Executor = Executors.newFixedThreadPool(threadCount) { r ->
+            Thread(r).apply {
+                priority = Thread.MIN_PRIORITY
+            }
+        }
         dispatcher = loadIconExecutor.asCoroutineDispatcher()
     }
 
-    fun dispatcher(): CoroutineDispatcher {
-        return dispatcher
-    }
+    fun dispatcher(): CoroutineDispatcher = dispatcher
 
-    private fun get(packageName: String, userId: Int, size: Int): Bitmap? {
-        return lruCache[Triple(packageName, userId, size)]
-    }
+    private fun get(packageName: String, userId: Int, size: Int): Bitmap? = lruCache["$packageName:$userId:$size"]
 
     private fun put(packageName: String, userId: Int, size: Int, bitmap: Bitmap) {
-        if (get(packageName, userId, size) == null) {
-            lruCache.put(Triple(packageName, userId, size), bitmap)
-        }
+        lruCache.put("$packageName:$userId:$size", bitmap)
     }
 
     private fun remove(packageName: String, userId: Int, size: Int) {
-        lruCache.remove(Triple(packageName, userId, size))
+        lruCache.remove("$packageName:$userId:$size")
     }
 
     private fun loadIconBitmap(context: Context, info: ApplicationInfo, userId: Int, size: Int): Bitmap {
@@ -71,14 +92,18 @@ object AppIconCache : CoroutineScope {
         if (cachedBitmap != null) {
             return cachedBitmap
         }
+
         val loader = appIconLoaders.getOrPut(size) {
-            AppIconLoader(size, AppIconUtil.shouldShrinkNonAdaptiveIcons(context), object : ContextWrapper(context) {
-                override fun getApplicationContext(): Context {
-                    return context
-                }
-            })
+            AppIconLoader(
+                size,
+                AppIconUtil.shouldShrinkNonAdaptiveIcons(context),
+                object : ContextWrapper(context) {
+                    override fun getApplicationContext(): Context = context
+                },
+            )
         }
         val bitmap = loader.loadIcon(info, false)
+
         put(info.packageName, userId, size, bitmap)
         return bitmap
     }
@@ -86,18 +111,20 @@ object AppIconCache : CoroutineScope {
     @JvmStatic
     fun loadIconBitmapAsync(
         context: Context,
-        info: ApplicationInfo, userId: Int,
-        view: ImageView
-    ): Job {
-        return launch {
-            val size =
-                view.measuredWidth.let { if (it > 0) it else context.resources.getDimensionPixelSize(R.dimen.expected_app_icon_max_size) }
-            val cachedBitmap = get(info.packageName, userId, size)
-            if (cachedBitmap != null) {
-                view.setImageBitmap(cachedBitmap)
-                return@launch
-            }
+        info: ApplicationInfo,
+        userId: Int,
+        view: ImageView,
+        size: Int,
+    ): Job? {
+        val cachedBitmap = get(info.packageName, userId, size)
+        if (cachedBitmap != null) {
+            view.setImageBitmap(cachedBitmap)
+            return null
+        }
 
+        view.setImageDrawable(null)
+
+        return launch {
             val bitmap = try {
                 withContext(dispatcher) {
                     loadIconBitmap(context, info, userId, size)

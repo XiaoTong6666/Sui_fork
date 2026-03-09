@@ -1,4 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ This file is part of Sui.
+  ~
+  ~ Sui is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Sui is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+  ~
+  ~ Copyright (c) 2026 Sui Contributors
+  -->
+
 <resources>
     <string name="permission_warning_template"><![CDATA[要允许<b>%1$s</b>%2$s吗？]]></string>
     <string name="permission_description">拥有设备的完全访问权限</string>
@@ -13,8 +32,24 @@
     <string name="permission_denied">拒绝</string>
     <string name="permission_hidden">隐藏</string>
     <string name="permission_ask">询问</string>
+    <string name="permission_default">默认</string>
     <string name="notification_channel_group_name">显示管理界面</string>
     <string name="notification_show_management_title">您已进入“开发者设置”</string>
     <string name="notification_show_management_text">点按以显示超级用户管理界面</string>
     <string name="shortcut_is_out_dated">快捷方式已过期，请移除此快捷方式后重新添加。</string>
+    <string name="action_search">搜索</string>
+    <string name="action_add_shortcut">添加快捷方式到桌面</string>
+    <string name="action_about">关于</string>
+    <string name="about_author">作者: %1$s</string>
+    <string name="about_button_ok">确定</string>
+    <string name="action_batch_unconfigured">修改默认值</string>
+    <string name="action_filter_shizuku_apps">仅显示Shizuku应用</string>
+    <string name="action_monet">动态取色</string>
+    <string name="about_version">v%1$s</string>
+    <string name="about_license_part1">本项目遵循 GPLv3 在 </string>
+    <string name="about_license_part2">GitHub</string>
+    <string name="about_license_part3"> 开源 \nCopyright (c) 2021-2026 Sui Contributors</string>
+    <string name="about_contributors">贡献者: Rikka, yujincheng08, Kr328, yangFenTuoZi, XiaoTong</string>
+    <string name="toast_request_shortcut">在尝试创建喵...</string>
+    <string name="toast_request_shortcut_failed">创建失败喵: %1$s</string>
 </resources>

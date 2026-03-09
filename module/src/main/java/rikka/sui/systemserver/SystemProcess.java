@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.systemserver;
@@ -24,18 +24,18 @@ import static rikka.sui.systemserver.SystemServerConstants.LOGGER;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
-
+import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
-
 import java.util.Arrays;
-
 import rikka.sui.util.ParcelUtils;
 
 public final class SystemProcess {
 
     private static final BridgeService SERVICE = new BridgeService();
+    private static volatile int[] hiddenUids = new int[0];
 
-    private static boolean execActivityTransaction(@NonNull Binder binder, int code, Parcel data, Parcel reply, int flags) {
+    private static boolean execActivityTransaction(
+            @NonNull Binder binder, int code, Parcel data, Parcel reply, int flags) {
         return SERVICE.onTransact(code, data, reply, flags);
     }
 
@@ -79,5 +79,35 @@ public final class SystemProcess {
 
     public static void main(String[] args) {
         LOGGER.d("main: %s", Arrays.toString(args));
+
+        try {
+            moe.shizuku.server.IShizukuService service = BridgeService.get();
+            if (service != null) {
+                int[] uids = service.getHiddenUids();
+                LOGGER.d("syncing %d hidden uids to native and Java cache", uids.length);
+                updateHiddenUids(uids);
+            } else {
+                LOGGER.w("IShizukuService is null in SystemProcess.main");
+            }
+        } catch (Throwable e) {
+            LOGGER.w(e, "failed to sync hidden uids");
+        }
     }
+
+    public static void updateHiddenUids(int[] uids) {
+        if (uids == null) uids = new int[0];
+        Arrays.sort(uids);
+        hiddenUids = uids;
+        LOGGER.d("syncing %d hidden uids to native", uids.length);
+        setHiddenUids(uids);
+    }
+
+    public static boolean isHidden(int uid) {
+        int[] uids = hiddenUids;
+        return Arrays.binarySearch(uids, uid) >= 0;
+    }
+
+    @Keep
+    @SuppressWarnings("JavaJniMissingFunction")
+    private static native void setHiddenUids(int[] uids);
 }

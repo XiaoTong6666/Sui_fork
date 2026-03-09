@@ -14,21 +14,21 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.server.bridge;
 
+import static rikka.sui.server.ServerConstants.LOGGER;
+
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.ServiceManager;
-
+import android.os.SystemProperties;
 import java.lang.reflect.Field;
 import java.util.Map;
-
 import rikka.sui.server.SuiService;
-
-import static rikka.sui.server.ServerConstants.LOGGER;
 
 public class BridgeServiceClient {
 
@@ -39,6 +39,11 @@ public class BridgeServiceClient {
     private static final int ACTION_SEND_BINDER = 1;
     private static final int ACTION_GET_BINDER = ACTION_SEND_BINDER + 1;
     private static final int ACTION_NOTIFY_FINISHED = ACTION_SEND_BINDER + 2;
+    private static final int ACTION_SYNC_HIDDEN_UIDS = ACTION_SEND_BINDER + 3;
+
+    private static final int MAX_ZYGOTE_RESTART = 1;
+    private static int remainingRestart = MAX_ZYGOTE_RESTART;
+    private static boolean systemServerRequested = false;
 
     private static class DeathRecipient implements IBinder.DeathRecipient {
 
@@ -148,6 +153,32 @@ public class BridgeServiceClient {
         if (listener != null) {
             listener.onResponseFromBridgeService(res);
         }
+
+        if (res) {
+            systemServerRequested = true;
+        } else {
+            maybeRestartZygote();
+        }
+    }
+
+    private static void maybeRestartZygote() {
+        if (systemServerRequested) {
+            return;
+        }
+        if (remainingRestart <= 0) {
+            LOGGER.w("zygote restart quota exhausted, skip restart");
+            return;
+        }
+        remainingRestart--;
+        LOGGER.w("System server injection failed, try restarting zygote (remaining=%d)", remainingRestart);
+        try {
+            boolean has64 = Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0;
+            boolean has32 = Build.SUPPORTED_32_BIT_ABIS != null && Build.SUPPORTED_32_BIT_ABIS.length > 0;
+            String target = (has64 && has32) ? "zygote_secondary" : "zygote";
+            SystemProperties.set("ctl.restart", target);
+        } catch (Throwable e) {
+            LOGGER.w(e, "Failed to restart zygote");
+        }
     }
 
     public static void send(Listener listener) {
@@ -180,6 +211,28 @@ public class BridgeServiceClient {
             LOGGER.i("notify started");
         } else {
             LOGGER.w("notify started");
+        }
+    }
+
+    public static void syncHiddenUids(int[] uids) {
+        IBinder bridgeService = ServiceManager.getService(BRIDGE_SERVICE_NAME);
+        if (bridgeService == null) {
+            return;
+        }
+
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(BRIDGE_SERVICE_DESCRIPTOR);
+            data.writeInt(ACTION_SYNC_HIDDEN_UIDS);
+            data.writeIntArray(uids);
+            bridgeService.transact(BRIDGE_TRANSACTION_CODE, data, reply, 0);
+            reply.readException();
+        } catch (Throwable e) {
+            LOGGER.e(e, "sync hidden uids");
+        } finally {
+            data.recycle();
+            reply.recycle();
         }
     }
 }

@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.systemserver;
@@ -25,12 +25,8 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
-import java.util.Objects;
-
 import moe.shizuku.server.IShizukuService;
 
 public class BridgeService {
@@ -41,16 +37,20 @@ public class BridgeService {
     private static final int ACTION_SEND_BINDER = 1;
     private static final int ACTION_GET_BINDER = ACTION_SEND_BINDER + 1;
     private static final int ACTION_NOTIFY_FINISHED = ACTION_SEND_BINDER + 2;
+    private static final int ACTION_SYNC_HIDDEN_UIDS = ACTION_SEND_BINDER + 3;
 
+    private static final int RETRY_MAX = 3;
+    private static final long RETRY_DELAY_MS = 1000;
     private static final IBinder.DeathRecipient DEATH_RECIPIENT = () -> {
         serviceBinder = null;
         service = null;
+        serviceStarted = false;
         LOGGER.i("service is dead");
     };
 
-    private static IBinder serviceBinder;
+    private static volatile IBinder serviceBinder;
     private static IShizukuService service;
-    private static boolean serviceStarted;
+    private static volatile boolean serviceStarted;
 
     public static IShizukuService get() {
         return service;
@@ -66,10 +66,14 @@ public class BridgeService {
             return;
         }
 
-        if (serviceBinder == null) {
-            PackageReceiver.register();
-        } else {
-            serviceBinder.unlinkToDeath(DEATH_RECIPIENT, 0);
+        try {
+            if (serviceBinder == null) {
+                PackageReceiver.register();
+            } else {
+                serviceBinder.unlinkToDeath(DEATH_RECIPIENT, 0);
+            }
+        } catch (Throwable e) {
+            LOGGER.w(e, "Error during receiver registration or unlink");
         }
 
         serviceBinder = binder;
@@ -90,7 +94,9 @@ public class BridgeService {
         data.enforceInterface(DESCRIPTOR);
 
         int action = data.readInt();
-        LOGGER.d("onTransact: action=%d, callingUid=%d, callingPid=%d", action, Binder.getCallingUid(), Binder.getCallingPid());
+        LOGGER.d(
+                "onTransact: action=%d, callingUid=%d, callingPid=%d",
+                action, Binder.getCallingUid(), Binder.getCallingPid());
 
         switch (action) {
             case ACTION_SEND_BINDER: {
@@ -113,6 +119,15 @@ public class BridgeService {
                 if (Bridge.isHidden(Binder.getCallingUid())) {
                     return false;
                 }
+                if (serviceBinder == null) {
+                    for (int i = 0; i < RETRY_MAX && serviceBinder == null; i++) {
+                        try {
+                            LOGGER.w("binder missing, wait %d ms (try %d/%d)", RETRY_DELAY_MS, i + 1, RETRY_MAX);
+                            Thread.sleep(RETRY_DELAY_MS);
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                }
 
                 if (reply != null) {
                     reply.writeNoException();
@@ -130,6 +145,18 @@ public class BridgeService {
                     }
                     return true;
                 }
+                break;
+            }
+            case ACTION_SYNC_HIDDEN_UIDS: {
+                if (Binder.getCallingUid() == 0) {
+                    int[] uids = data.createIntArray();
+                    SystemProcess.updateHiddenUids(uids);
+                    if (reply != null) {
+                        reply.writeNoException();
+                    }
+                    return true;
+                }
+                break;
             }
         }
         return false;

@@ -1,4 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ This file is part of Sui.
+  ~
+  ~ Sui is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Sui is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+  ~
+  ~ Copyright (c) 2026 Sui Contributors
+  -->
+
 <resources>
     <string name="permission_warning_template"><![CDATA[Allow <b>%1$s</b> to %2$s?]]></string>
     <string name="permission_description">have the full access of the device</string>
@@ -13,8 +32,24 @@
     <string name="permission_denied">Denied</string>
     <string name="permission_hidden">Hidden</string>
     <string name="permission_ask">Ask</string>
+    <string name="permission_default">Default</string>
     <string name="notification_channel_group_name">Show management</string>
     <string name="notification_show_management_title">You have entered \"Developer options\"</string>
     <string name="notification_show_management_text">Tap to show superuser management</string>
     <string name="shortcut_is_out_dated">This shortcut is outdated, please remove this shortcut add it again.</string>
+    <string name="action_search">Search</string>
+    <string name="action_add_shortcut">Add shortcut to home screen</string>
+    <string name="action_about">About</string>
+    <string name="about_author">Author: %1$s</string>
+    <string name="about_button_ok">OK</string>
+    <string name="action_batch_unconfigured">Modify default value</string>
+    <string name="action_filter_shizuku_apps">Show only Shizuku apps</string>
+    <string name="action_monet">Monet dynamic color</string>
+    <string name="about_version">v%1$s</string>
+    <string name="about_license_part1">This project is licensed under GPLv3 and open source on </string>
+    <string name="about_license_part2">GitHub</string>
+    <string name="about_license_part3">.\nCopyright (c) 2021-2026 Sui Contributors</string>
+    <string name="about_contributors">Contributors: Rikka, yujincheng08, Kr328, yangFenTuoZi, XiaoTong</string>
+    <string name="toast_request_shortcut">Trying to create...</string>
+    <string name="toast_request_shortcut_failed">Failed to create: %1$s</string>
 </resources>

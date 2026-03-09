@@ -1,9 +1,21 @@
 pluginManagement {
     repositories {
+        maven { url "https://jitpack.io" }
         gradlePluginPortal()
         google()
         mavenCentral()
         mavenLocal()
+        maven { url "https://maven.aliyun.com/repository/gradle-plugin" }
+        maven { url "https://maven.aliyun.com/repository/google" }
+        maven { url "https://maven.aliyun.com/repository/public" }
+    }
+    plugins {
+        id("com.android.application") version "9.1.0"
+        id("com.android.library") version "9.1.0"
+        id("org.jetbrains.kotlin.android") version "2.3.10"
+        id("dev.rikka.tools.autoresconfig") version "1.2.2"
+        id("dev.rikka.tools.materialthemebuilder") version "1.5.1"
+        id("dev.rikka.tools.refine") version "4.4.0"
     }
 }
 dependencyResolutionManagement {
@@ -12,14 +24,17 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         mavenLocal()
+        maven { url "https://maven.aliyun.com/repository/gradle-plugin" }
+        maven { url "https://maven.aliyun.com/repository/google" }
+        maven { url "https://maven.aliyun.com/repository/public" }
     }
     versionCatalogs {
         libs {
-            version('hidden-api', '4.1.0')
+            version('hidden-api', '4.4.0')
             library('hidden-compat', 'dev.rikka.hidden', 'compat').versionRef('hidden-api')
             library('hidden-stub', 'dev.rikka.hidden', 'stub').versionRef('hidden-api')
 
-            version('refine', '4.3.0')
+            version('refine', '4.4.0')
             library('refine-runtime', 'dev.rikka.tools.refine', 'runtime').versionRef('refine')
             library('refine-annotation', 'dev.rikka.tools.refine', 'annotation').versionRef('refine')
             library('refine-annotation-processor', 'dev.rikka.tools.refine', 'annotation-processor').versionRef('refine')
@@ -29,6 +44,25 @@ dependencyResolutionManagement {
 }
 
 include ':module', ':ui'
+
+/*
+ * This file is part of Sui.
+ *
+ * Sui is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Sui is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Copyright (c) 2026 Sui Contributors
+ */
 
 import org.apache.tools.ant.DirectoryScanner
 
