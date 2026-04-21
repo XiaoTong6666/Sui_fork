@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.shortcut;
@@ -27,4 +27,5 @@ public class ShortcutConstants {
 
     public static final String SHORTCUT_ID = "rikka.sui.shortcut.SUI";
     public static final String SHORTCUT_EXTRA = "rikka.sui.extra.SUI";
+    public static final String SHORTCUT_EXTRA_TOKEN = "rikka.sui.extra.TOKEN";
 }

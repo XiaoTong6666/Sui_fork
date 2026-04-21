@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.systemserver;
@@ -24,18 +24,23 @@ import static rikka.sui.systemserver.SystemServerConstants.LOGGER;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
-
+import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
-
 import java.util.Arrays;
-
+import rikka.sui.server.SuiConfig;
 import rikka.sui.util.ParcelUtils;
 
 public final class SystemProcess {
 
     private static final BridgeService SERVICE = new BridgeService();
+    private static volatile int[] hiddenUids = new int[0];
+    private static volatile int[] rootUids = new int[0];
+    private static volatile int[] deniedUids = new int[0];
+    private static volatile int[] shellUids = new int[0];
+    private static volatile int defaultPermissionFlags = 0;
 
-    private static boolean execActivityTransaction(@NonNull Binder binder, int code, Parcel data, Parcel reply, int flags) {
+    private static boolean execActivityTransaction(
+            @NonNull Binder binder, int code, Parcel data, Parcel reply, int flags) {
         return SERVICE.onTransact(code, data, reply, flags);
     }
 
@@ -79,5 +84,71 @@ public final class SystemProcess {
 
     public static void main(String[] args) {
         LOGGER.d("main: %s", Arrays.toString(args));
+
+        // Note: IShizukuService only provides getHiddenUids().
+        // Root and shell UIDs will be pushed shortly by SuiService via ACTION_SYNC_UIDS.
+        try {
+            moe.shizuku.server.IShizukuService service = BridgeService.get();
+            if (service != null) {
+                int[] uids = service.getHiddenUids();
+                LOGGER.d("syncing %d hidden uids to native and Java cache", uids.length);
+                updateUids(uids, new int[0], new int[0], new int[0], 0);
+            } else {
+                LOGGER.w("IShizukuService is null in SystemProcess.main");
+            }
+        } catch (Throwable e) {
+            LOGGER.w(e, "failed to sync hidden uids");
+        }
     }
+
+    public static void updateUids(int[] hidden, int[] root, int[] denied, int[] shell, int defaultFlags) {
+        if (hidden == null) hidden = new int[0];
+        if (root == null) root = new int[0];
+        if (denied == null) denied = new int[0];
+        if (shell == null) shell = new int[0];
+
+        Arrays.sort(hidden);
+        Arrays.sort(root);
+        Arrays.sort(denied);
+        Arrays.sort(shell);
+
+        hiddenUids = hidden;
+        rootUids = root;
+        deniedUids = denied;
+        shellUids = shell;
+        defaultPermissionFlags = defaultFlags & SuiConfig.MASK_PERMISSION;
+
+        LOGGER.d(
+                "syncing %d hidden, %d root, %d denied, %d shell uids to native, defaultFlags=%d",
+                hidden.length, root.length, denied.length, shell.length, defaultPermissionFlags);
+        setHiddenUids(hidden);
+    }
+
+    public static boolean isHidden(int uid) {
+        int[] uids = hiddenUids;
+        return Arrays.binarySearch(uids, uid) >= 0;
+    }
+
+    public static boolean isRootAllowed(int uid) {
+        int[] uids = rootUids;
+        return Arrays.binarySearch(uids, uid) >= 0;
+    }
+
+    public static boolean isShellAllowed(int uid) {
+        int[] uids = shellUids;
+        return Arrays.binarySearch(uids, uid) >= 0;
+    }
+
+    public static boolean isDenied(int uid) {
+        int[] uids = deniedUids;
+        return Arrays.binarySearch(uids, uid) >= 0;
+    }
+
+    public static int getDefaultPermissionFlags() {
+        return defaultPermissionFlags;
+    }
+
+    @Keep
+    @SuppressWarnings("JavaJniMissingFunction")
+    private static native void setHiddenUids(int[] uids);
 }

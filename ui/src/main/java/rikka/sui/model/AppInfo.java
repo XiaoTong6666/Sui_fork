@@ -14,28 +14,34 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.model;
 
 import android.content.pm.PackageInfo;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
 
 public class AppInfo implements Parcelable {
 
     public PackageInfo packageInfo;
     public int flags;
+    public int defaultFlags;
     public CharSequence label = null;
 
-    public AppInfo() {
-    }
+    public AppInfo() {}
 
+    @SuppressWarnings("deprecation")
     protected AppInfo(Parcel in) {
-        packageInfo = in.readParcelable(PackageInfo.class.getClassLoader());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageInfo = in.readParcelable(PackageInfo.class.getClassLoader(), PackageInfo.class);
+        } else {
+            packageInfo = in.readParcelable(PackageInfo.class.getClassLoader());
+        }
         flags = in.readInt();
+        defaultFlags = in.readInt();
     }
 
     public static final Creator<AppInfo> CREATOR = new Creator<AppInfo>() {
@@ -59,5 +65,6 @@ public class AppInfo implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeParcelable(packageInfo, flags);
         dest.writeInt(this.flags);
+        dest.writeInt(defaultFlags);
     }
 }

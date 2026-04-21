@@ -14,29 +14,37 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.util;
 
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.ServiceManager;
-
 import androidx.annotation.Nullable;
-
-import java.util.List;
-
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import moe.shizuku.server.IShizukuService;
-import rikka.parcelablelist.ParcelableListSlice;
-import rikka.sui.model.AppInfo;
+import rikka.shizuku.ShizukuApiConstants;
 import rikka.sui.server.ServerConstants;
 
 public class BridgeServiceClient {
 
-    private static IBinder binder;
-    private static IShizukuService service;
+    private static volatile IBinder binder;
+    private static volatile IShizukuService service;
+    private static volatile String shortcutTokenCache;
+    private static final Object shortcutTokenLock = new Object();
+    private static FutureTask<String> shortcutTokenTask;
+    private static volatile int shortcutTokenGeneration;
+
+    private static final int SHORTCUT_TOKEN_FETCH_RETRY_COUNT = 5;
+    private static final long SHORTCUT_TOKEN_FETCH_RETRY_DELAY_MS = 400;
+    private static final long SHORTCUT_TOKEN_MAIN_THREAD_WAIT_MS = 2000;
 
     private static final int BRIDGE_TRANSACTION_CODE = ('_' << 24) | ('S' << 16) | ('U' << 8) | 'I';
     private static final String BRIDGE_SERVICE_DESCRIPTOR = "android.app.IActivityManager";
@@ -46,6 +54,7 @@ public class BridgeServiceClient {
     private static final IBinder.DeathRecipient DEATH_RECIPIENT = () -> {
         binder = null;
         service = null;
+        invalidateShortcutToken();
     };
 
     private static IBinder requestBinderFromBridge() {
@@ -93,6 +102,14 @@ public class BridgeServiceClient {
         }
     }
 
+    private static void invalidateShortcutToken() {
+        synchronized (shortcutTokenLock) {
+            shortcutTokenGeneration++;
+            shortcutTokenCache = null;
+            shortcutTokenTask = null;
+        }
+    }
+
     public static IShizukuService getService() {
         if (service == null) {
             setBinder(requestBinderFromBridge());
@@ -123,5 +140,115 @@ public class BridgeServiceClient {
             reply.recycle();
         }
         return result;
+    }
+
+    public static void prefetchShortcutToken() {
+        if (shortcutTokenCache != null) {
+            return;
+        }
+        startShortcutTokenFetch();
+    }
+
+    public static String getShortcutToken() {
+        if (shortcutTokenCache != null) {
+            return shortcutTokenCache;
+        }
+
+        FutureTask<String> task = startShortcutTokenFetch();
+        if (task == null) {
+            return shortcutTokenCache;
+        }
+
+        try {
+            String token;
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                token = task.get(SHORTCUT_TOKEN_MAIN_THREAD_WAIT_MS, TimeUnit.MILLISECONDS);
+            } else {
+                token = task.get();
+            }
+            if (token != null) {
+                shortcutTokenCache = token;
+            }
+            return token;
+        } catch (TimeoutException e) {
+            return shortcutTokenCache;
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return shortcutTokenCache;
+        }
+    }
+
+    private static FutureTask<String> startShortcutTokenFetch() {
+        synchronized (shortcutTokenLock) {
+            if (shortcutTokenCache != null) {
+                return null;
+            }
+
+            if (shortcutTokenTask != null && !shortcutTokenTask.isDone()) {
+                return shortcutTokenTask;
+            }
+
+            final int generation = shortcutTokenGeneration;
+            shortcutTokenTask = new FutureTask<>(() -> fetchShortcutTokenWithRetry(generation));
+            Thread thread = new Thread(shortcutTokenTask, "SuiShortcutToken");
+            thread.setDaemon(true);
+            thread.start();
+            return shortcutTokenTask;
+        }
+    }
+
+    private static String fetchShortcutTokenWithRetry(int generation) {
+        for (int attempt = 0; attempt < SHORTCUT_TOKEN_FETCH_RETRY_COUNT; attempt++) {
+            if (generation != shortcutTokenGeneration) {
+                return null;
+            }
+
+            String token = fetchShortcutTokenOnce();
+            if (token != null) {
+                synchronized (shortcutTokenLock) {
+                    if (generation != shortcutTokenGeneration) {
+                        return null;
+                    }
+                    shortcutTokenCache = token;
+                }
+                return token;
+            }
+
+            if (attempt == SHORTCUT_TOKEN_FETCH_RETRY_COUNT - 1) {
+                break;
+            }
+
+            try {
+                Thread.sleep(SHORTCUT_TOKEN_FETCH_RETRY_DELAY_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static String fetchShortcutTokenOnce() {
+        IShizukuService service = getService();
+        if (service == null) {
+            return null;
+        }
+        Parcel data = Parcel.obtain();
+        Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(ShizukuApiConstants.BINDER_DESCRIPTOR);
+            service.asBinder().transact(ServerConstants.BINDER_TRANSACTION_getShortcutToken, data, reply, 0);
+            reply.readException();
+            return reply.readString();
+        } catch (Throwable e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            data.recycle();
+            reply.recycle();
+        }
     }
 }

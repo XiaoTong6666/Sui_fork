@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.server;
@@ -24,5 +24,6 @@ public class SuiConfig {
     public static final int FLAG_ALLOWED = 1 << 1;
     public static final int FLAG_DENIED = 1 << 2;
     public static final int FLAG_HIDDEN = 1 << 3;
-    public static final int MASK_PERMISSION = FLAG_ALLOWED | FLAG_DENIED | FLAG_HIDDEN;
+    public static final int FLAG_ALLOWED_SHELL = 1 << 4;
+    public static final int MASK_PERMISSION = FLAG_ALLOWED | FLAG_DENIED | FLAG_HIDDEN | FLAG_ALLOWED_SHELL;
 }

@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.settings;
@@ -23,29 +23,26 @@ import static rikka.sui.settings.SettingsConstants.LOGGER;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
-import android.app.Activity;
 import android.app.ActivityThread;
 import android.app.Application;
 import android.app.Instrumentation;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ResolveInfo;
+import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.os.Binder;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.UserManager;
-import android.provider.Settings;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-
 import java.util.Arrays;
-
 import rikka.sui.resource.SuiApk;
 import rikka.sui.shortcut.SuiShortcut;
+import rikka.sui.util.BridgeServiceClient;
 
 public class SettingsProcess {
 
@@ -53,87 +50,26 @@ public class SettingsProcess {
     private static Handler handler;
     private static HandlerThread handlerThread;
 
-    private static void requestPinnedShortcutInDeveloperOptions(Application application, Resources resources) {
-        ResolveInfo ri = application.getPackageManager().resolveActivity(
-                new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS).setPackage(application.getPackageName()), 0);
-
-        if (ri == null) {
-            LOGGER.e("Cannot find activity for action %s", Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS);
-            return;
-        }
-
-        String developmentActivityName = ri.activityInfo.name;
-        LOGGER.d("Activity for %s is %s", Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, developmentActivityName);
-
-        application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
-
-            @Override
-            public void onActivityCreated(@NonNull Activity activity, @Nullable Bundle savedInstanceState) {
-
-            }
-
-            @Override
-            public void onActivityStarted(@NonNull Activity activity) {
-                Intent intent = activity.getIntent();
-                String fragment = intent.getStringExtra(":settings:show_fragment");
-
-                LOGGER.d("onActivityStarted: %s, action=%s, fragment=%s",
-                        activity.getLocalClassName(), activity.getIntent().getAction(), fragment);
-
-                if (fragment != null && fragment.contains("Development")
-                        || activity.getComponentName().getClassName().contains(developmentActivityName)) {
-                    WorkerHandler.get().post(() -> {
-                                try {
-                                    SuiShortcut.requestPinnedShortcut(activity, resources);
-                                } catch (Throwable e) {
-                                    LOGGER.e(e, "requestPinnedShortcut");
-                                }
-                            }
-                    );
-                }
-            }
-
-            @Override
-            public void onActivityResumed(@NonNull Activity activity) {
-
-            }
-
-            @Override
-            public void onActivityPaused(@NonNull Activity activity) {
-
-            }
-
-            @Override
-            public void onActivityStopped(@NonNull Activity activity) {
-
-            }
-
-            @Override
-            public void onActivitySaveInstanceState(@NonNull Activity activity, @NonNull Bundle outState) {
-
-            }
-
-            @Override
-            public void onActivityDestroyed(@NonNull Activity activity) {
-
-            }
-        });
-
-        LOGGER.d("registerActivityLifecycleCallbacks");
-    }
-
     @TargetApi(Build.VERSION_CODES.O)
-    private static void shortcutStuff(Application application, Resources resources) {
-        UserManager userManager = application.getSystemService(UserManager.class);
-        if (!userManager.isUserUnlocked()) {
-            LOGGER.v("Not unlocked, wait 5s");
-            handler.postDelayed(() -> shortcutStuff(application, resources), 5000);
+    private static void shortcutStuff(Application application, SettingsInstrumentation instrumentation) {
+        Resources resources = instrumentation.getResources();
+        if (resources == null) {
+            handler.postDelayed(() -> shortcutStuff(application, instrumentation), 5000);
             return;
         }
+
+        UserManager userManager = application.getSystemService(UserManager.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !userManager.isUserUnlocked()) {
+            LOGGER.v("Not unlocked, wait 5s");
+            handler.postDelayed(() -> shortcutStuff(application, instrumentation), 5000);
+            return;
+        }
+
+        String token = BridgeServiceClient.getShortcutToken();
 
         boolean hasDynamic;
         try {
-            hasDynamic = SuiShortcut.updateExistingShortcuts(application, resources);
+            hasDynamic = SuiShortcut.updateExistingShortcuts(application, resources, token);
         } catch (Throwable e) {
             LOGGER.e(e, "updateExistingShortcuts");
             hasDynamic = false;
@@ -141,48 +77,120 @@ public class SettingsProcess {
 
         if (!hasDynamic) {
             try {
-                SuiShortcut.addDynamicShortcut(application, resources);
+                SuiShortcut.addDynamicShortcut(application, resources, token);
             } catch (Throwable e) {
                 LOGGER.e(e, "addDynamicShortcut");
             }
         } else {
             LOGGER.i("Dynamic shortcut exists and up to date");
         }
-
-        try {
-            requestPinnedShortcutInDeveloperOptions(application, resources);
-        } catch (Throwable e) {
-            LOGGER.e(e, "requestPinnedShortcutInDeveloperOptions");
-        }
-
         handlerThread.quit();
     }
 
+    @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag")
     private static void postBindApplication(ActivityThread activityThread) {
+        LOGGER.i("postBindApplication: Entered.");
         SuiApk suiApk = SuiApk.createForSettings();
         if (suiApk == null) {
             LOGGER.e("Cannot load apk");
             return;
         }
+        LOGGER.d("postBindApplication: SuiApk loaded successfully.");
+
+        BridgeServiceClient.prefetchShortcutToken();
 
         Instrumentation instrumentation = ActivityThreadUtil.getInstrumentation(activityThread);
         SettingsInstrumentation newInstrumentation = new SettingsInstrumentation(instrumentation, suiApk);
         ActivityThreadUtil.setInstrumentation(activityThread, newInstrumentation);
-        LOGGER.d("setInstrumentation: %s -> %s", instrumentation, newInstrumentation);
+        LOGGER.i("postBindApplication: Instrumentation hooked: %s -> %s", instrumentation, newInstrumentation);
+        new Handler(Looper.getMainLooper()).post(() -> {
+            LOGGER.d("postBindApplication [Delayed]: Starting check for Application object...");
 
-        Application application = activityThread.getApplication();
-        if (application == null) {
-            LOGGER.e("Application is null after bindApplication, cannot add shortcut");
-            return;
-        }
+            Application application = activityThread.getApplication();
+            if (application == null) {
+                LOGGER.e(
+                        "postBindApplication [Delayed]: FAILED, Application is still null even after posting to main looper.");
+                return;
+            }
+            LOGGER.d("postBindApplication [Delayed]: SUCCESS, Application object is available now!");
 
-        Resources resources = newInstrumentation.getResources();
-        if (resources != null) {
-            handlerThread = new HandlerThread("Sui");
-            handlerThread.start();
-            handler = new Handler(handlerThread.getLooper());
-            handler.post(() -> shortcutStuff(application, resources));
-        }
+            try {
+                BroadcastReceiver shortcutReceiver = new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        if ("rikka.sui.ACTION_REQUEST_PINNED_SHORTCUT".equals(intent.getAction())) {
+                            LOGGER.i("Shortcut creation request received via broadcast!");
+                            WorkerHandler.get().post(() -> {
+                                try {
+                                    String token = BridgeServiceClient.getShortcutToken();
+                                    SuiShortcut.requestPinnedShortcut(application, suiApk.getResources(), token);
+                                } catch (Throwable e) {
+                                    LOGGER.e(e, "Failed to create shortcut from broadcast receiver");
+                                }
+                            });
+                        }
+                    }
+                };
+                IntentFilter filter = new IntentFilter();
+                filter.addAction("rikka.sui.ACTION_REQUEST_PINNED_SHORTCUT");
+                try {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        application.registerReceiver(
+                                shortcutReceiver,
+                                filter,
+                                "android.permission.WRITE_SECURE_SETTINGS",
+                                null,
+                                Context.RECEIVER_EXPORTED);
+                    } else {
+                        application.registerReceiver(
+                                shortcutReceiver, filter, "android.permission.WRITE_SECURE_SETTINGS", null);
+                    }
+                    LOGGER.i("Shortcut/UI request receiver registered securely");
+                } catch (Throwable e) {
+                    LOGGER.e(e, "Failed to register receiver securely");
+                }
+            } catch (Throwable e) {
+                LOGGER.e(e, "Failed to setup shortcut creation broadcast receiver.");
+            }
+
+            try {
+                BroadcastReceiver overlayReceiver = new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        if ("android.intent.action.OVERLAY_CHANGED".equals(intent.getAction())) {
+                            LOGGER.i("Overlay changed broadcast received! Reloading resources.");
+                            try {
+                                suiApk.reloadResources();
+                            } catch (Exception e) {
+                                LOGGER.e(e, "Failed to reload resources upon overlay change");
+                            }
+                        }
+                    }
+                };
+                IntentFilter overlayFilter = new IntentFilter("android.intent.action.OVERLAY_CHANGED");
+                overlayFilter.addDataScheme("package");
+                try {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        application.registerReceiver(overlayReceiver, overlayFilter, Context.RECEIVER_EXPORTED);
+                    } else {
+                        application.registerReceiver(overlayReceiver, overlayFilter);
+                    }
+                    LOGGER.i("Overlay changed receiver registered.");
+                } catch (Throwable e) {
+                    LOGGER.e(e, "Failed to register overlay receiver");
+                }
+            } catch (Throwable e) {
+                LOGGER.e(e, "Failed to setup overlay changed broadcast receiver.");
+            }
+
+            if (newInstrumentation.getResources() != null) {
+                handlerThread = new HandlerThread("Sui");
+                handlerThread.start();
+                handler = new Handler(handlerThread.getLooper());
+                handler.post(() -> shortcutStuff(application, newInstrumentation));
+                LOGGER.d("postBindApplication [Delayed]: shortcutStuff has been posted.");
+            }
+        });
     }
 
     @SuppressLint("DiscouragedPrivateApi")
@@ -208,8 +216,7 @@ public class SettingsProcess {
 
         Handler.Callback original = HandlerUtil.getCallback(handler);
         HandlerUtil.setCallback(handler, msg -> {
-            if (msg.what == bindApplicationCode
-                    && ActivityThreadUtil.isAppBindData(msg.obj)) {
+            if (msg.what == bindApplicationCode && ActivityThreadUtil.isAppBindData(msg.obj)) {
                 LOGGER.v("call original bindApplication");
                 handler.handleMessage(msg);
                 LOGGER.v("bindApplication finished");
@@ -232,6 +239,7 @@ public class SettingsProcess {
             ActivityThreadUtil.init();
             HandlerUtil.init();
             reflection = true;
+            LOGGER.d("SettingsProcess.main: Reflection utils initialized successfully.");
         } catch (Throwable e) {
             LOGGER.e(Log.getStackTraceString(e));
         }

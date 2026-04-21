@@ -1,4 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="Widget.Sui.PopupMenu" parent="Widget.Material3.PopupMenu.Overflow">
+        <item name="android:popupBackground">@drawable/miuix_popup_background</item>
+        <item name="android:popupEnterTransition">@transition/miuix_popup_enter</item>
+        <item name="android:popupExitTransition">@transition/miuix_popup_exit</item>
+        <item name="android:popupElevation">8dp</item>
+        <item name="overlapAnchor">false</item>
+        <item name="android:dropDownVerticalOffset">4dp</item>
+        <item name="android:dropDownHorizontalOffset">0dp</item>
+        <item name="android:listPreferredItemPaddingLeft">22dp</item>
+        <item name="android:listPreferredItemPaddingRight">22dp</item>
+    </style>
 
-    <style name="AppTheme" parent="Theme.Light" />
+    <style name="SuiPopupAnimation">
+        <item name="android:windowEnterAnimation">@anim/miuix_popup_enter</item>
+        <item name="android:windowExitAnimation">@anim/miuix_popup_exit</item>
+    </style>
+
+    <style name="Theme.Sui.PopupMenu" parent="">
+        <item name="checkboxStyle">@style/Sui.PopupMenu.CheckBox</item>
+        <item name="android:checkboxStyle">@style/Sui.PopupMenu.CheckBox</item>
+        <item name="radioButtonStyle">@style/Sui.PopupMenu.CheckBox</item>
+        <item name="android:radioButtonStyle">@style/Sui.PopupMenu.CheckBox</item>
+        <item name="android:popupAnimationStyle">@style/SuiPopupAnimation</item>
+    </style>
+
+    <style name="Theme.Sui.PopupMenu.OverflowRightOffset" parent="Theme.Sui.PopupMenu">
+        <item name="popupMenuStyle">@style/Widget.Sui.PopupMenu.OverflowRightOffset</item>
+    </style>
+
+    <style name="Widget.Sui.PopupMenu.OverflowRightOffset" parent="Widget.Sui.PopupMenu">
+        <item name="android:dropDownHorizontalOffset">-20dp</item>
+    </style>
+
+    <style name="Sui.PopupMenu.CheckBox" parent="Widget.AppCompat.CompoundButton.CheckBox">
+        <item name="android:button">@drawable/miuix_popup_checkbox_selector</item>
+        <item name="buttonCompat">@drawable/miuix_popup_checkbox_selector</item>
+        <item name="android:background">@null</item>
+        <item name="buttonTint">@null</item>
+        <item name="android:buttonTint">@null</item>
+        <item name="android:tint">@null</item>
+    </style>
+
+    <style name="MiuixBottomSheetDialogStyle" parent="Theme.AppCompat.Light.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

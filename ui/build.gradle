@@ -1,120 +1,108 @@
-import java.nio.file.Files
-import java.nio.file.Paths
-
+/*
+ * This file is part of Sui.
+ *
+ * Sui is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Sui is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * Copyright (c) 2026 Sui Contributors
+ */
 plugins {
-    id('com.android.application')
-    id('kotlin-android')
-    id('dev.rikka.tools.refine')
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.refine)
 }
 
-apply from: file(rootProject.file('module.gradle'))
+apply from: "$rootDir/module.gradle"
 
 android {
-    namespace "rikka.sui"
-    compileSdk rootProject.ext.targetSdkVersion
+    namespace = "rikka.sui"
+
     defaultConfig {
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode gitCommitCount
-        versionName moduleVersion.substring(1)
-        resConfigs 'en', 'zh', 'zh-rCN', 'zh-rTW'
+        minSdk = 23
+        versionCode = gitCommitCount
+        versionName = moduleVersion.substring(1)
+        resourceConfigurations.addAll(["en", "zh", "zh-rCN", "zh-rTW"])
+        vectorDrawables.useSupportLibrary = true
     }
+
     buildFeatures {
-        viewBinding true
-        buildConfig true
+        viewBinding = true
+        buildConfig = true
     }
+
     buildTypes {
         debug {
-            defaultConfig.minSdk 24
-            multiDexEnabled false
+            multiDexEnabled = false
         }
         release {
-            minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
-    packagingOptions {
-        exclude '/META-INF/*.version'
-        exclude '/META-INF/*.kotlin_module'
-        exclude '/kotlin/**'
-        exclude '**.bin'
-    }
-    lintOptions {
-        checkReleaseBuilds false
-    }
-    dependenciesInfo {
-        includeInApk false
-    }
-}
 
-configurations.configureEach {
-    exclude group: 'androidx.appcompat', module: 'appcompat'
+    packaging {
+        resources {
+            excludes.add("/META-INF/*.version")
+            excludes.add("/META-INF/*.kotlin_module")
+            excludes.add("/kotlin/**")
+            excludes.add("**.bin")
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+    }
 }
 
 dependencies {
+    implementation libs.smart.refresh.kernel
+    implementation libs.smart.refresh.header.material
+    implementation libs.smart.refresh.header.classics
+    compileOnly libs.support.annotations
+
     implementation libs.refine.runtime
 
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.1"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1"
+    implementation libs.kotlinx.coroutines.core
+    implementation libs.kotlinx.coroutines.android
 
-    implementation project(':aidl')
-    implementation project(':api')
+    implementation project(":aidl")
+    implementation project(":api")
     compileOnly libs.hidden.stub
-    implementation 'dev.rikka.rikkax.parcelablelist:parcelablelist:2.0.0'
 
-    implementation 'dev.rikka.rikkax.appcompat:appcompat:1.2.0-rc01'
-    implementation 'dev.rikka.rikkax.material:material:1.6.6'
-    implementation 'dev.rikka.rikkax.insets:insets:1.1.0'
-    implementation 'dev.rikka.rikkax.lifecycle:lifecycle-resource-livedata:1.0.0'
-    implementation 'dev.rikka.rikkax.lifecycle:lifecycle-viewmodel-lazy:1.0.0'
-    implementation 'dev.rikka.rikkax.recyclerview:recyclerview-adapter:1.3.0'
-    implementation 'dev.rikka.rikkax.recyclerview:recyclerview-ktx:1.2.2'
-    implementation 'dev.rikka.rikkax.widget:borderview:1.0.1'
-    implementation 'dev.rikka.rikkax.html:html-ktx:1.1.2'
+    implementation libs.parcelablelist
+    implementation libs.rikkax.insets
+    implementation libs.rikkax.lifecycle.resource.livedata
+    implementation libs.rikkax.lifecycle.viewmodel.lazy
+    implementation libs.rikkax.recyclerview.adapter
+    implementation libs.rikkax.recyclerview.ktx
+    implementation libs.rikkax.widget.borderview
+    implementation libs.rikkax.html.ktx
 
-    implementation "androidx.annotation:annotation:1.2.0"
-    implementation 'androidx.core:core-ktx:1.8.0'
-    implementation 'androidx.fragment:fragment-ktx:1.3.6'
-    implementation 'androidx.recyclerview:recyclerview:1.2.1'
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.3.1'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.3.1'
+    implementation libs.androidx.annotation
+    implementation libs.androidx.core.ktx
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.fragment.ktx
+    implementation libs.androidx.recyclerview
+    implementation libs.androidx.lifecycle.viewmodel.ktx
+    implementation libs.androidx.lifecycle.livedata.ktx
+    implementation libs.androidx.swiperefreshlayout
 
-    implementation 'me.zhanghai.android.fastscroll:library:1.1.6'
-    implementation 'me.zhanghai.android.appiconloader:appiconloader:1.3.1'
-}
-
-afterEvaluate {
-    android.applicationVariants.all { variant ->
-        def variantCapped = variant.name.capitalize()
-        def variantLowered = variant.name.toLowerCase()
-
-        if (variant.getBuildType().isMinifyEnabled()) {
-            def processResourcesTask = tasks.getByName("process${variantCapped}Resources")
-            def optimizeResourceTask = task("optimize${variantCapped}Resources").doLast {
-                def aapt2 = Paths.get(project.android.sdkDirectory.path, 'build-tools', project.android.buildToolsVersion, 'aapt2')
-                def zip = Paths.get(project.buildDir.path, 'intermediates',
-                        'processed_res', variantLowered, 'out', "resources-${variantLowered}.ap_")
-                def map = Paths.get(project.buildDir.path, 'outputs',
-                        'mapping', variantLowered, 'resources.txt')
-                Files.createDirectories(map.getParent())
-                def optimized = new File("${zip}.opt")
-                def cmd = exec {
-                    commandLine aapt2, 'optimize', '--collapse-resource-names',
-                            '--shorten-resource-paths',
-                            '--resources-config-path', 'aapt2-resources.cfg',
-                            '--resource-path-shortening-map', map,
-                            '-o', optimized, zip
-                    ignoreExitValue false
-                }
-                if (cmd.exitValue == 0) {
-                    delete(zip)
-                    optimized.renameTo("$zip")
-                }
-            }
-            optimizeResourceTask.onlyIf {
-                !processResourcesTask.state.upToDate
-            }
-            processResourcesTask.finalizedBy(optimizeResourceTask)
-        }
-    }
+    implementation libs.google.material
+    implementation libs.androidx.dynamicanimation
+    implementation libs.fastscroll
+    implementation libs.appiconloader
 }

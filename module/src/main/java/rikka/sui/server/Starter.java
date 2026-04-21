@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.server;
@@ -24,7 +24,6 @@ import static rikka.sui.server.ServerConstants.LOGGER;
 import android.content.Context;
 import android.ddm.DdmHandleAppName;
 import android.os.ServiceManager;
-
 import java.util.Objects;
 
 public class Starter {
@@ -41,7 +40,13 @@ public class Starter {
     }
 
     public static void main(String[] args) {
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            LOGGER.e(e, "Uncaught exception on thread %s", t.getName());
+            System.exit(1);
+        });
+
         String filesPath = null;
+        boolean isShell = false;
 
         for (String arg : args) {
             if (arg.equals("--debug")) {
@@ -49,6 +54,8 @@ public class Starter {
             } else if (arg.startsWith("--files-path=")) {
                 filesPath = arg.substring("--files-path=".length());
                 SuiUserServiceManager.setStartDex(filesPath + "/sui.dex");
+            } else if (arg.equals("--shell")) {
+                isShell = true;
             }
         }
 
@@ -59,6 +66,6 @@ public class Starter {
         waitSystemService(Context.USER_SERVICE);
         waitSystemService(Context.APP_OPS_SERVICE);
 
-        SuiService.main(filesPath);
+        SuiService.main(filesPath, isShell);
     }
 }

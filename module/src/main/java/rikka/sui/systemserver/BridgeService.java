@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.systemserver;
@@ -25,13 +25,10 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-
-import java.util.Objects;
-
 import moe.shizuku.server.IShizukuService;
+import rikka.sui.server.SuiConfig;
 
 public class BridgeService {
 
@@ -41,45 +38,82 @@ public class BridgeService {
     private static final int ACTION_SEND_BINDER = 1;
     private static final int ACTION_GET_BINDER = ACTION_SEND_BINDER + 1;
     private static final int ACTION_NOTIFY_FINISHED = ACTION_SEND_BINDER + 2;
+    private static final int ACTION_SYNC_UIDS = ACTION_SEND_BINDER + 3;
+    private static final int SERVER_UID_ROOT = 0;
+    private static final int SERVER_UID_SHELL = 2000;
 
-    private static final IBinder.DeathRecipient DEATH_RECIPIENT = () -> {
-        serviceBinder = null;
-        service = null;
-        LOGGER.i("service is dead");
+    private static final int RETRY_MAX = 3;
+    private static final long RETRY_DELAY_MS = 1000;
+
+    private static final IBinder.DeathRecipient DEATH_RECIPIENT_ROOT = () -> {
+        rootServiceBinder = null;
+        rootService = null;
+        serviceStarted = false;
+        LOGGER.i("root service is dead");
+    };
+    private static final IBinder.DeathRecipient DEATH_RECIPIENT_SHELL = () -> {
+        shellServiceBinder = null;
+        shellService = null;
+        LOGGER.i("shell service is dead");
     };
 
-    private static IBinder serviceBinder;
-    private static IShizukuService service;
-    private static boolean serviceStarted;
+    private static volatile IBinder rootServiceBinder;
+    private static IShizukuService rootService;
+    private static volatile IBinder shellServiceBinder;
+    private static IShizukuService shellService;
+    private static volatile boolean serviceStarted;
 
     public static IShizukuService get() {
-        return service;
+        return rootService;
+    }
+
+    public static IShizukuService getShell() {
+        return shellService;
     }
 
     public static boolean isServiceStarted() {
         return serviceStarted;
     }
 
-    private void sendBinder(IBinder binder) {
+    private void sendBinder(IBinder binder, boolean isRoot) {
         if (binder == null) {
             LOGGER.w("received empty binder");
             return;
         }
 
-        if (serviceBinder == null) {
-            PackageReceiver.register();
-        } else {
-            serviceBinder.unlinkToDeath(DEATH_RECIPIENT, 0);
-        }
-
-        serviceBinder = binder;
-        service = IShizukuService.Stub.asInterface(serviceBinder);
         try {
-            serviceBinder.linkToDeath(DEATH_RECIPIENT, 0);
-        } catch (RemoteException ignored) {
+            if (isRoot) {
+                if (rootServiceBinder == null) {
+                    PackageReceiver.register();
+                } else {
+                    rootServiceBinder.unlinkToDeath(DEATH_RECIPIENT_ROOT, 0);
+                }
+            } else {
+                if (shellServiceBinder != null) {
+                    shellServiceBinder.unlinkToDeath(DEATH_RECIPIENT_SHELL, 0);
+                }
+            }
+        } catch (Throwable e) {
+            LOGGER.w(e, "Error during receiver registration or unlink");
         }
 
-        LOGGER.i("binder received");
+        if (isRoot) {
+            rootServiceBinder = binder;
+            rootService = IShizukuService.Stub.asInterface(rootServiceBinder);
+            try {
+                rootServiceBinder.linkToDeath(DEATH_RECIPIENT_ROOT, 0);
+            } catch (RemoteException ignored) {
+            }
+            LOGGER.i("root binder received");
+        } else {
+            shellServiceBinder = binder;
+            shellService = IShizukuService.Stub.asInterface(shellServiceBinder);
+            try {
+                shellServiceBinder.linkToDeath(DEATH_RECIPIENT_SHELL, 0);
+            } catch (RemoteException ignored) {
+            }
+            LOGGER.i("shell binder received");
+        }
     }
 
     public boolean isServiceTransaction(int code) {
@@ -90,15 +124,18 @@ public class BridgeService {
         data.enforceInterface(DESCRIPTOR);
 
         int action = data.readInt();
-        LOGGER.d("onTransact: action=%d, callingUid=%d, callingPid=%d", action, Binder.getCallingUid(), Binder.getCallingPid());
+        LOGGER.d(
+                "onTransact: action=%d, callingUid=%d, callingPid=%d",
+                action, Binder.getCallingUid(), Binder.getCallingPid());
 
         switch (action) {
             case ACTION_SEND_BINDER: {
-                if (Binder.getCallingUid() == 0) {
+                int callingUid = Binder.getCallingUid();
+                if (callingUid == 0 || callingUid == 2000) {
                     IBinder binder = data.readStrongBinder();
                     long identity = Binder.clearCallingIdentity();
                     try {
-                        sendBinder(binder);
+                        sendBinder(binder, callingUid == 0);
                     } finally {
                         Binder.restoreCallingIdentity(identity);
                     }
@@ -110,14 +147,62 @@ public class BridgeService {
                 break;
             }
             case ACTION_GET_BINDER: {
-                if (Bridge.isHidden(Binder.getCallingUid())) {
+                int callingUid = Binder.getCallingUid();
+                int targetUid = callingUid;
+                Integer requestedServerUid = null;
+                if ((callingUid == 0 || callingUid == 2000) && data.dataAvail() >= Integer.BYTES) {
+                    int value = data.readInt();
+                    if (value == SERVER_UID_ROOT || value == SERVER_UID_SHELL) {
+                        requestedServerUid = value;
+                    }
+                }
+
+                int permissionFlags = Bridge.getPermissionFlags(targetUid);
+
+                if (requestedServerUid == null && (permissionFlags & SuiConfig.FLAG_HIDDEN) != 0) {
                     return false;
                 }
 
+                // Wait for the requested binder to be available
+                IBinder requestedBinder = null;
+                for (int i = 0; i < RETRY_MAX; i++) {
+                    if (requestedServerUid != null) {
+                        requestedBinder =
+                                requestedServerUid == SERVER_UID_ROOT ? rootServiceBinder : shellServiceBinder;
+                    } else if ((permissionFlags & SuiConfig.FLAG_ALLOWED) != 0) {
+                        requestedBinder = rootServiceBinder;
+                    } else if ((permissionFlags & SuiConfig.FLAG_ALLOWED_SHELL) != 0) {
+                        requestedBinder = shellServiceBinder;
+                    } else {
+                        // Ask/deny still need the root service binder so the client can attach and receive
+                        // normal permission request or denial results. Hidden is handled above.
+                        requestedBinder = rootServiceBinder;
+                    }
+
+                    if (requestedBinder != null) break;
+
+                    try {
+                        LOGGER.w("binder missing, wait %d ms (try %d/%d)", RETRY_DELAY_MS, i + 1, RETRY_MAX);
+                        Thread.sleep(RETRY_DELAY_MS);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+
+                LOGGER.d(
+                        "getBinder: callingUid=%d, targetUid=%d, requestedServer=%s, selected=%s",
+                        callingUid,
+                        targetUid,
+                        requestedServerUid == null
+                                ? "auto"
+                                : (requestedServerUid == SERVER_UID_ROOT ? "root" : "shell"),
+                        requestedBinder == rootServiceBinder
+                                ? "root"
+                                : requestedBinder == shellServiceBinder ? "shell" : "null");
+
                 if (reply != null) {
                     reply.writeNoException();
-                    LOGGER.d("saved binder is %s", serviceBinder);
-                    reply.writeStrongBinder(serviceBinder);
+                    LOGGER.d("saved binder is %s", requestedBinder);
+                    reply.writeStrongBinder(requestedBinder);
                 }
                 return true;
             }
@@ -130,6 +215,30 @@ public class BridgeService {
                     }
                     return true;
                 }
+                break;
+            }
+            case ACTION_SYNC_UIDS: {
+                if (Binder.getCallingUid() == 0) {
+                    int[] hiddenUids = data.createIntArray();
+                    int[] rootUids = data.createIntArray();
+                    int[] shellUids = data.createIntArray();
+                    int defaultFlags = 0;
+                    int[] deniedUids = new int[0];
+
+                    if (data.dataAvail() >= Integer.BYTES) {
+                        defaultFlags = data.readInt();
+                    }
+
+                    if (data.dataAvail() >= Integer.BYTES) {
+                        deniedUids = data.createIntArray();
+                    }
+                    SystemProcess.updateUids(hiddenUids, rootUids, deniedUids, shellUids, defaultFlags);
+                    if (reply != null) {
+                        reply.writeNoException();
+                    }
+                    return true;
+                }
+                break;
             }
         }
         return false;

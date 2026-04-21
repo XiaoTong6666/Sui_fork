@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.resource;
@@ -30,14 +30,12 @@ import android.content.res.Resources;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
-
+import dalvik.system.PathClassLoader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Objects;
-
-import dalvik.system.PathClassLoader;
 import rikka.sui.util.BridgeServiceClient;
 
 @SuppressLint({"DiscouragedPrivateApi", "BlockedPrivateApi"})
@@ -46,11 +44,13 @@ public class SuiApk {
 
     @SuppressWarnings("FieldCanBeLocal")
     private final ClassLoader classLoader;
-    private final Resources resources;
-    private Class<?> suiActivityClass;
-    private Class<?> suiRequestPermissionDialogClass;
-    private Constructor<?> suiActivityConstructor;
-    private Constructor<?> suiRequestPermissionDialogConstructor;
+
+    private volatile Resources resources;
+    private String apkPath;
+    private volatile Class<?> suiActivityClass;
+    private volatile Class<?> suiRequestPermissionDialogClass;
+    private volatile Constructor<?> suiActivityConstructor;
+    private volatile Constructor<?> suiRequestPermissionDialogConstructor;
 
     public static SuiApk createForSettings() {
         SuiApk apk;
@@ -76,7 +76,9 @@ public class SuiApk {
         }
     }
 
-    private SuiApk() throws IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException, NoSuchFieldException, InterruptedException {
+    private SuiApk()
+            throws IllegalAccessException, InstantiationException, NoSuchMethodException, InvocationTargetException,
+                    NoSuchFieldException, InterruptedException, Exception {
         int retries = 10;
         do {
             if (BridgeServiceClient.getService() != null) break;
@@ -86,13 +88,25 @@ public class SuiApk {
         } while (retries > 0);
 
         String apkPath;
-        ParcelFileDescriptor pfd = Objects.requireNonNull(BridgeServiceClient.openApk());
-        int fd = pfd.detachFd();
-        apkPath = "/proc/self/fd/" + fd;
+        if (Build.VERSION.SDK_INT < 28) {
+            apkPath = "/data/system/sui/sui.apk";
+            LOGGER.i("SuiApk: Forced to use physical path: %s", apkPath);
+        } else {
+            ParcelFileDescriptor pfd = Objects.requireNonNull(BridgeServiceClient.openApk());
+            int fd = pfd.detachFd();
+            apkPath = "/proc/self/fd/" + fd;
+            LOGGER.i("SuiApk: Using FD path: %s", apkPath);
+        }
 
+        this.apkPath = apkPath;
         classLoader = new PathClassLoader(apkPath, ClassLoader.getSystemClassLoader());
 
-        AssetManager am = AssetManager.class.newInstance();
+        reloadResources();
+    }
+
+    @SuppressWarnings("deprecation")
+    public void reloadResources() throws Exception {
+        AssetManager am = AssetManager.class.getConstructor().newInstance();
         Method addAssetPath = AssetManager.class.getDeclaredMethod("addAssetPath", String.class);
         addAssetPath.setAccessible(true);
         addAssetPath.invoke(am, apkPath);
@@ -114,12 +128,25 @@ public class SuiApk {
             }
         }
 
-        resources = new Resources(am, application.getResources().getDisplayMetrics(), application.getResources().getConfiguration());
+        Resources newResources = new Resources(
+                am,
+                application.getResources().getDisplayMetrics(),
+                application.getResources().getConfiguration());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             Field classLoaderField = Resources.class.getDeclaredField("mClassLoader");
             classLoaderField.setAccessible(true);
-            classLoaderField.set(resources, classLoader);
+            classLoaderField.set(newResources, classLoader);
+        }
+
+        this.resources = newResources;
+    }
+
+    @SuppressWarnings("deprecation")
+    public void updateConfiguration(android.content.res.Configuration newConfig) throws Exception {
+        Resources res = this.resources;
+        if (res != null) {
+            res.updateConfiguration(newConfig, res.getDisplayMetrics());
         }
     }
 
@@ -136,8 +163,7 @@ public class SuiApk {
         try {
             suiRequestPermissionDialogClass = classLoader.loadClass("rikka.sui.SuiRequestPermissionDialog");
             suiRequestPermissionDialogConstructor = suiRequestPermissionDialogClass.getDeclaredConstructor(
-                    Application.class, Resources.class,
-                    int.class, int.class, String.class, int.class);
+                    Application.class, Resources.class, int.class, int.class, String.class, int.class);
         } catch (Throwable e) {
             LOGGER.e(e, "Cannot load SuiRequestPermissionDialog class");
         }
