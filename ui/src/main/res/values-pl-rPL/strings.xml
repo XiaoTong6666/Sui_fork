@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resources>
+  <string name="permission_warning_template"><![CDATA[Zezwolić <b>%1$s</b> na %2$s?]]></string>
+  <string name="permission_description">pełny dostęp do urządzenia</string>
+  <string name="grant_dialog_button_allow_always">Pozwól zawsze</string>
+  <string name="grant_dialog_button_allow_one_time">Tylko tym razem</string>
+  <string name="grant_dialog_button_deny">Odmów</string>
+  <string name="grant_dialog_button_deny_and_dont_ask_again">Odmów, nie pytaj ponownie</string>
+  <string name="brackets_format">%1$s (%2$s)</string>
+  <string name="management_title">Zarządzaj super użytkownikiem</string>
+  <string name="close">Zamknij</string>
+  <string name="permission_allowed">Dozwolone</string>
+  <string name="permission_denied">Zabronione</string>
+  <string name="permission_hidden">Ukryte</string>
+  <string name="permission_ask">Pytaj</string>
+  <string name="notification_channel_group_name">Pokaż zarządzanie</string>
+  <string name="notification_show_management_title">Otwórz Opcje programisty</string>
+  <string name="notification_show_management_text">Naciśnij, aby wyświetlić zarządzanie super użytkownikiem</string>
+  <string name="shortcut_is_out_dated">Ten skrót jest nieaktualny. Usuń go i dodaj ponownie.</string>
+</resources>
