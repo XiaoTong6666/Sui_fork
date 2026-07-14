@@ -14,28 +14,62 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.model;
 
 import android.content.pm.PackageInfo;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
+import rikka.sui.server.SuiConfig;
 
 public class AppInfo implements Parcelable {
 
-    public PackageInfo packageInfo;
-    public int flags;
-    public CharSequence label = null;
+    private static final int EFFECTIVE_FLAGS_SHIFT = 16;
+    private static final int LEGACY_FLAGS_MASK = 0xFFFF;
 
-    public AppInfo() {
+    private static int packDefaultFlags(int defaultFlags, int effectiveFlags) {
+        return (defaultFlags & LEGACY_FLAGS_MASK)
+                | ((effectiveFlags & SuiConfig.MASK_PERMISSION) << EFFECTIVE_FLAGS_SHIFT);
     }
 
+    private static int unpackDefaultFlags(int packedDefaultFlags) {
+        return packedDefaultFlags & LEGACY_FLAGS_MASK;
+    }
+
+    private static int unpackEffectiveFlags(int explicitFlags, int packedDefaultFlags) {
+        int encoded = (packedDefaultFlags >>> EFFECTIVE_FLAGS_SHIFT) & SuiConfig.MASK_PERMISSION;
+        if (encoded != 0) {
+            return encoded;
+        }
+        int explicit = explicitFlags & SuiConfig.MASK_PERMISSION;
+        if (explicit != 0) {
+            return explicit;
+        }
+        return unpackDefaultFlags(packedDefaultFlags) & SuiConfig.MASK_PERMISSION;
+    }
+
+    public PackageInfo packageInfo;
+    public int flags;
+    public int effectiveFlags;
+    public int defaultFlags;
+    public CharSequence label = null;
+
+    public AppInfo() {}
+
+    @SuppressWarnings("deprecation")
     protected AppInfo(Parcel in) {
-        packageInfo = in.readParcelable(PackageInfo.class.getClassLoader());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageInfo = in.readParcelable(PackageInfo.class.getClassLoader(), PackageInfo.class);
+        } else {
+            packageInfo = in.readParcelable(PackageInfo.class.getClassLoader());
+        }
         flags = in.readInt();
+        int packedDefaultFlags = in.readInt();
+        defaultFlags = unpackDefaultFlags(packedDefaultFlags);
+        effectiveFlags = unpackEffectiveFlags(flags, packedDefaultFlags);
     }
 
     public static final Creator<AppInfo> CREATOR = new Creator<AppInfo>() {
@@ -59,5 +93,23 @@ public class AppInfo implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeParcelable(packageInfo, flags);
         dest.writeInt(this.flags);
+        dest.writeInt(packDefaultFlags(defaultFlags, effectiveFlags));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        AppInfo appInfo = (AppInfo) o;
+        return flags == appInfo.flags
+                && effectiveFlags == appInfo.effectiveFlags
+                && defaultFlags == appInfo.defaultFlags
+                && java.util.Objects.equals(packageInfo.packageName, appInfo.packageInfo.packageName)
+                && java.util.Objects.equals(label, appInfo.label);
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(packageInfo.packageName, flags, effectiveFlags, defaultFlags, label);
     }
 }

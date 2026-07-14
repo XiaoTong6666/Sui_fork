@@ -21,11 +21,7 @@
 
 namespace android {
 
-    int GetApiLevel();
+bool Has32Bit();
 
-    int GetPreviewApiLevel();
-
-    bool Has32Bit();
-
-    bool Has64Bit();
-}
+bool Has64Bit();
+}  // namespace android

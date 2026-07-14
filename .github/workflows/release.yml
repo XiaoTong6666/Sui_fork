@@ -1,0 +1,145 @@
+name: Module Release
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      release_title:
+        required: true
+        type: string
+      delete_existing_assets:
+        required: true
+        type: boolean
+      version_name:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+      commit_url:
+        required: true
+        type: string
+      build_duration:
+        required: true
+        type: string
+      release_zip_name:
+        required: true
+        type: string
+      debug_zip_name:
+        required: true
+        type: string
+      release_sha256:
+        required: true
+        type: string
+      debug_sha256:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download module zips
+        uses: actions/download-artifact@main
+        with:
+          name: module-zips
+          path: dist/zips
+
+      - name: Download build metadata
+        uses: actions/download-artifact@main
+        with:
+          name: build-metadata
+          path: dist/metadata
+
+      - name: Delete existing release assets
+        if: ${{ inputs.delete_existing_assets }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_JSON="$(gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" 2>/dev/null || true)"
+          RELEASE_ID="$(echo "$RELEASE_JSON" | jq -r '.id // empty')"
+
+          if [ -z "$RELEASE_ID" ]; then
+            echo "Release ${RELEASE_TAG} does not exist, skip asset deletion."
+            exit 0
+          fi
+
+          gh api --paginate "repos/${{ github.repository }}/releases/${RELEASE_ID}/assets" --jq '.[].id' |
+          while read -r ASSET_ID; do
+            [ -n "$ASSET_ID" ] || continue
+            echo "Delete old asset: $ASSET_ID"
+            gh api -X DELETE "repos/${{ github.repository }}/releases/assets/${ASSET_ID}"
+          done
+
+      - name: Prepare release note
+        env:
+          RELEASE_TITLE: ${{ inputs.release_title }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_URL: ${{ inputs.commit_url }}
+          BUILD_DURATION: ${{ inputs.build_duration }}
+          RELEASE_ZIP_NAME: ${{ inputs.release_zip_name }}
+          DEBUG_ZIP_NAME: ${{ inputs.debug_zip_name }}
+          RELEASE_SHA256: ${{ inputs.release_sha256 }}
+          DEBUG_SHA256: ${{ inputs.debug_sha256 }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "# ${RELEASE_TITLE}"
+            echo
+            echo "- **Version:** \`${VERSION_NAME}\`"
+            echo "- **VersionCode:** \`${VERSION_CODE}\`"
+            echo "- **Commit:** [\`${COMMIT_SHA}\`](${COMMIT_URL})"
+            echo "- **Build time:** \`${BUILD_DURATION}\`"
+            echo
+            echo "## Assets"
+            echo
+            echo "- \`${RELEASE_ZIP_NAME}\`"
+            echo "- \`${DEBUG_ZIP_NAME}\`"
+            echo
+            echo "## SHA256"
+            echo
+            echo "- Release: \`${RELEASE_SHA256}\`"
+            echo "- Debug: \`${DEBUG_SHA256}\`"
+            echo
+            echo "## Message"
+            echo
+            echo '```text'
+            cat dist/metadata/commit-message.txt
+            echo '```'
+          } > release-note.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@master
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_title }}
+          draft: false
+          prerelease: false
+          body_path: release-note.md
+          overwrite_files: ${{ inputs.delete_existing_assets }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/zips/Sui-*-release.zip
+            dist/zips/Sui-*-debug.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

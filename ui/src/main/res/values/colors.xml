@@ -1,14 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="color_primary_light">@color/material_teal_500</color>
-    <color name="color_primary_variant_light">@color/material_teal_600</color>
-    <color name="color_secondary_light">@color/material_teal_700</color>
-    <color name="color_secondary_variant_light">@color/material_teal_700</color>
-    <color name="color_surface_light">#f5f5f5</color>
+<!--
+  ~ This file is part of Sui.
+  ~
+  ~ Sui is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Sui is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+  ~
+  ~ Copyright (c) 2026 Sui Contributors
+  -->
 
-    <color name="color_primary_dark">@color/material_teal_100</color>
-    <color name="color_primary_variant_dark">@color/material_teal_200</color>
-    <color name="color_secondary_dark">@color/material_teal_300</color>
-    <color name="color_secondary_variant_dark">@color/material_teal_300</color>
-    <color name="color_surface_dark">#1b1b1b</color>
+<resources>
+    <color name="miuix_window_background">#F7F7F7</color>
+    <color name="miuix_appbar_background">#F7F7F7</color>
+    <color name="miuix_card_normal">#FFFFFF</color>
+    <color name="miuix_popup_background_color">#D9FFFFFF</color>
+    <color name="miuix_card_pressed">#E5E5E5</color>
+
+    <color name="miuix_bottom_sheet_bg_color">#FFFFFF</color>
+    <color name="miuix_button_bg_color">#F0F0F0</color>
+
+    <!-- Miuix Pull To Refresh & Drag Handle -->
+    <color name="miuix_pull_to_refresh_color">#999999</color>
+    <color name="miuix_drag_handle_color">#337F7F7F</color>
 </resources>

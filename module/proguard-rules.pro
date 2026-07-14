@@ -1,55 +1,39 @@
--repackageclasses rikka.sui
+-keep class rikka.sui.** { *; }
+-keep interface rikka.sui.** { *; }
 
--keep class rikka.sui.server.Starter {
-    public static void main(java.lang.String[]);
+-keepclasseswithmembernames class * {
+    native <methods>;
 }
 
--keep class rikka.sui.server.userservice.Starter {
-    public static void main(java.lang.String[]);
-}
-
--keep class rikka.sui.systemserver.SystemProcess {
-    public static void main(java.lang.String[]);
-    public static boolean execTransact(android.os.Binder, int, long, long, int);
-}
-
--keep class rikka.sui.manager.ManagerProcess {
-    public static void main(java.lang.String[]);
-}
-
--keep class rikka.sui.settings.SettingsProcess {
-    public static void main(java.lang.String[]);
-    public static boolean execTransact(android.os.Binder, int, long, long, int);
-}
-
--keep class rikka.sui.installer.Installer {
-    public static void main(java.lang.String[]);
-}
-
--keep class rikka.sui.installer.Uninstaller {
-    public static void main(java.lang.String[]);
-}
-
--keep class rikka.sui.shell.Shell {
-    public static void main(java.lang.String[]);
-}
+-keep interface moe.shizuku.server.I* { *; }
+-keep class moe.shizuku.server.I*$* { *; }
 
 -keepnames class * implements android.os.Parcelable
-
 -keepclassmembers class * implements android.os.Parcelable {
-  public static final android.os.Parcelable$Creator CREATOR;
+    public static final android.os.Parcelable$Creator CREATOR;
 }
 
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+    public static *** wtf(...);
 }
-
 -assumenosideeffects class rikka.sui.util.Logger {
+    public *** v(...);
     public *** d(...);
+    public *** i(...);
+    public *** w(...);
+    public *** e(...);
 }
-
 -assumenosideeffects class rikka.shizuku.server.util.Logger {
+    public *** v(...);
     public *** d(...);
+    public *** i(...);
+    public *** w(...);
+    public *** e(...);
 }
 
 -keepattributes SourceFile,LineNumberTable
@@ -57,3 +41,5 @@
 
 -dontwarn android.**
 -dontwarn com.android.**
+-dontwarn androidx.**
+-dontwarn sun.misc.**

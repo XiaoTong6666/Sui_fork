@@ -14,14 +14,14 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.util;
 
+import android.annotation.SuppressLint;
 import android.os.Build;
 import android.os.Parcel;
-
 import java.lang.reflect.Method;
 
 public class ParcelUtils {
@@ -39,6 +39,7 @@ public class ParcelUtils {
 
     private static Method obtainMethod;
 
+    @SuppressLint("SoonBlockedPrivateApi")
     public static Parcel fromNativePointer(long ptr) {
         if (ptr == 0) return null;
 

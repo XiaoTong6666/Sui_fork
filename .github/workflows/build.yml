@@ -1,0 +1,242 @@
+name: Module Build
+
+on:
+  workflow_call:
+    inputs:
+      java_version:
+        required: true
+        type: string
+
+    outputs:
+      release_zip_name:
+        value: ${{ jobs.build.outputs.release_zip_name }}
+      debug_zip_name:
+        value: ${{ jobs.build.outputs.debug_zip_name }}
+      release_artifact_name:
+        value: ${{ jobs.build.outputs.release_artifact_name }}
+      debug_artifact_name:
+        value: ${{ jobs.build.outputs.debug_artifact_name }}
+      version_name:
+        value: ${{ jobs.build.outputs.version_name }}
+      version_short:
+        value: ${{ jobs.build.outputs.version_short }}
+      version_code:
+        value: ${{ jobs.build.outputs.version_code }}
+      commit_sha:
+        value: ${{ jobs.build.outputs.commit_sha }}
+      commit_full_sha:
+        value: ${{ jobs.build.outputs.commit_full_sha }}
+      commit_url:
+        value: ${{ jobs.build.outputs.commit_url }}
+      build_duration:
+        value: ${{ jobs.build.outputs.build_duration }}
+      release_sha256:
+        value: ${{ jobs.build.outputs.release_sha256 }}
+      debug_sha256:
+        value: ${{ jobs.build.outputs.debug_sha256 }}
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build module
+    runs-on: ubuntu-24.04
+
+    outputs:
+      release_zip_name: ${{ steps.meta.outputs.release_zip_name }}
+      debug_zip_name: ${{ steps.meta.outputs.debug_zip_name }}
+      release_artifact_name: ${{ steps.meta.outputs.release_artifact_name }}
+      debug_artifact_name: ${{ steps.meta.outputs.debug_artifact_name }}
+      version_name: ${{ steps.meta.outputs.version_name }}
+      version_short: ${{ steps.meta.outputs.version_short }}
+      version_code: ${{ steps.meta.outputs.version_code }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+      commit_full_sha: ${{ steps.meta.outputs.commit_full_sha }}
+      commit_url: ${{ steps.meta.outputs.commit_url }}
+      build_duration: ${{ steps.build.outputs.duration_human }}
+      release_sha256: ${{ steps.meta.outputs.release_sha256 }}
+      debug_sha256: ${{ steps.meta.outputs.debug_sha256 }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set Gradle distribution URL
+        run: |
+          set -euo pipefail
+          sed -i 's|mirrors.cloud.tencent.com/gradle/|services.gradle.org/distributions/|g' ./gradle/wrapper/gradle-wrapper.properties
+
+      - name: Setup Java
+        uses: actions/setup-java@main
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@main
+        with:
+          dependency-graph: generate-and-submit
+          dependency-graph-continue-on-failure: true
+          build-scan-publish: true
+          build-scan-terms-of-use-url: https://gradle.com/terms-of-service
+          build-scan-terms-of-use-agree: yes
+
+      - name: Accept Android licenses
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      - name: Configure Gradle properties
+        run: |
+          set -euo pipefail
+          {
+            echo 'android.sdk.channel=3'
+            echo 'android.native.buildOutput=verbose'
+            echo 'org.gradle.caching=true'
+            echo 'org.gradle.parallel=true'
+          } >> gradle.properties
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        id: build
+        run: |
+          set -euo pipefail
+
+          start_time="$(date +%s)"
+          ./gradlew zipDebug zipRelease --parallel --build-cache --max-workers="$(nproc)"
+          end_time="$(date +%s)"
+
+          duration_seconds=$((end_time - start_time))
+          duration_minutes=$((duration_seconds / 60))
+          duration_remainder=$((duration_seconds % 60))
+          printf -v duration_human "%dm %02ds" "$duration_minutes" "$duration_remainder"
+
+          {
+            echo "duration_seconds=${duration_seconds}"
+            echo "duration_human=${duration_human}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Collect module metadata
+        id: meta
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist/zips dist/release dist/debug dist/metadata
+
+          RELEASE_ZIP="$(find out -maxdepth 1 -type f -name 'Sui-*-release.zip' | sort | head -n1)"
+          DEBUG_ZIP="$(find out -maxdepth 1 -type f -name 'Sui-*-debug.zip' | sort | head -n1)"
+
+          test -f "$RELEASE_ZIP"
+          test -f "$DEBUG_ZIP"
+
+          RELEASE_ZIP_NAME="$(basename "$RELEASE_ZIP")"
+          DEBUG_ZIP_NAME="$(basename "$DEBUG_ZIP")"
+          RELEASE_ARTIFACT_NAME="${RELEASE_ZIP_NAME%.zip}"
+          DEBUG_ARTIFACT_NAME="${DEBUG_ZIP_NAME%.zip}"
+
+          cp "$RELEASE_ZIP" dist/zips/
+          cp "$DEBUG_ZIP" dist/zips/
+
+          unzip -q "$RELEASE_ZIP" -d dist/release
+          unzip -q "$DEBUG_ZIP" -d dist/debug
+
+          VERSION_NAME="$(unzip -p "$RELEASE_ZIP" module.prop | sed -n 's/^version=//p' | head -n1)"
+          VERSION_CODE="$(unzip -p "$RELEASE_ZIP" module.prop | sed -n 's/^versionCode=//p' | head -n1)"
+          VERSION_SHORT="$(echo "$RELEASE_ZIP_NAME" | sed -E 's/^Sui-(v[^_]+)_.*/\1/')"
+
+          test -n "$VERSION_NAME"
+          test -n "$VERSION_CODE"
+          test -n "$VERSION_SHORT"
+
+          COMMIT_SHA="$(git rev-parse --short HEAD)"
+          COMMIT_FULL_SHA="$(git rev-parse HEAD)"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${COMMIT_FULL_SHA}"
+
+          RELEASE_SHA256="$(sha256sum "dist/zips/${RELEASE_ZIP_NAME}" | awk '{print $1}')"
+          DEBUG_SHA256="$(sha256sum "dist/zips/${DEBUG_ZIP_NAME}" | awk '{print $1}')"
+
+          git log -1 --pretty=%B > dist/metadata/commit-message.txt
+
+          cat > dist/metadata/build-summary.md <<EOF
+          # Build Metadata
+
+          - Release zip: \`${RELEASE_ZIP_NAME}\`
+          - Debug zip: \`${DEBUG_ZIP_NAME}\`
+          - Version: \`${VERSION_NAME}\`
+          - Version short: \`${VERSION_SHORT}\`
+          - VersionCode: \`${VERSION_CODE}\`
+          - Commit: [\`${COMMIT_SHA}\`](${COMMIT_URL})
+          - Build time: \`${{ steps.build.outputs.duration_human }}\`
+
+          ## SHA256
+
+          - Release: \`${RELEASE_SHA256}\`
+          - Debug: \`${DEBUG_SHA256}\`
+          EOF
+
+          cat dist/metadata/build-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "release_zip_name=${RELEASE_ZIP_NAME}"
+            echo "debug_zip_name=${DEBUG_ZIP_NAME}"
+            echo "release_artifact_name=${RELEASE_ARTIFACT_NAME}"
+            echo "debug_artifact_name=${DEBUG_ARTIFACT_NAME}"
+            echo "version_name=${VERSION_NAME}"
+            echo "version_short=${VERSION_SHORT}"
+            echo "version_code=${VERSION_CODE}"
+            echo "commit_sha=${COMMIT_SHA}"
+            echo "commit_full_sha=${COMMIT_FULL_SHA}"
+            echo "commit_url=${COMMIT_URL}"
+            echo "release_sha256=${RELEASE_SHA256}"
+            echo "debug_sha256=${DEBUG_SHA256}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release module artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ steps.meta.outputs.release_artifact_name }}
+          path: dist/release/*
+          if-no-files-found: error
+
+      - name: Upload debug module artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ steps.meta.outputs.debug_artifact_name }}
+          path: dist/debug/*
+          if-no-files-found: error
+
+      - name: Upload module zips
+        uses: actions/upload-artifact@main
+        with:
+          name: module-zips
+          path: dist/zips/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build metadata
+        uses: actions/upload-artifact@main
+        with:
+          name: build-metadata
+          path: dist/metadata/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload mappings
+        uses: actions/upload-artifact@main
+        with:
+          name: mappings
+          path: |
+            module/build/outputs/mapping/release
+            ui/build/outputs/mapping/release
+          if-no-files-found: warn

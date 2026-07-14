@@ -1,0 +1,48 @@
+[versions]
+agp = "9.2.1"
+kotlin = "2.4.0"
+hidden-api = "4.4.0"
+refine = "4.4.0"
+libcxx = "29.0.14206865"
+nativehelper = "1.0.1"
+parcelablelist = "2.0.1"
+annotation = "1.10.0"
+core = "1.19.0"
+coroutines = "1.11.0"
+appcompat = "1.7.1"
+fragment = "1.8.9"
+recyclerview = "1.4.0"
+lifecycle = "2.11.0"
+material = "1.14.0"
+dynamicanimation = "1.1.0"
+appiconloader = "1.5.0"
+spotless = "8.8.0"
+support-annotations = "28.0.0"
+
+[libraries]
+hidden-compat = { group = "dev.rikka.hidden", name = "compat", version.ref = "hidden-api" }
+hidden-stub = { group = "dev.rikka.hidden", name = "stub", version.ref = "hidden-api" }
+refine-runtime = { group = "dev.rikka.tools.refine", name = "runtime", version.ref = "refine" }
+libcxx = { group = "org.lsposed.libcxx", name = "libcxx", version.ref = "libcxx" }
+nativehelper = { group = "dev.rikka.ndk.thirdparty", name = "nativehelper", version.ref = "nativehelper" }
+parcelablelist = { group = "dev.rikka.rikkax.parcelablelist", name = "parcelablelist", version.ref = "parcelablelist" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
+androidx-core = { group = "androidx.core", name = "core", version.ref = "core" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "fragment" }
+androidx-recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version.ref = "recyclerview" }
+androidx-lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycle" }
+google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-dynamicanimation = { group = "androidx.dynamicanimation", name = "dynamicanimation", version.ref = "dynamicanimation" }
+appiconloader = { group = "me.zhanghai.android.appiconloader", name = "appiconloader", version.ref = "appiconloader" }
+support-annotations = { group = "com.android.support", name = "support-annotations", version.ref = "support-annotations" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+refine = { id = "dev.rikka.tools.refine", version.ref = "refine" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

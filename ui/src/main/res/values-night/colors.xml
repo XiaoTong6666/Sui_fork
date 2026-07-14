@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="miuix_window_background">#000000</color>
+    <color name="miuix_appbar_background">#000000</color>
+    <color name="miuix_card_normal">#242424</color>
+    <color name="miuix_popup_background_color">#D9242424</color>
+    <color name="miuix_card_pressed">#383838</color>
+    
+    <color name="miuix_bottom_sheet_bg_color">#242424</color>
+    <color name="miuix_button_bg_color">#434343</color>
+
+    <color name="miuix_pull_to_refresh_color">#999999</color>
+    <color name="miuix_drag_handle_color">#337F7F7F</color>
+</resources>

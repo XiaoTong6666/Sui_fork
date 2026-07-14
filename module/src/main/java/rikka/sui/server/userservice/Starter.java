@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.server.userservice;
@@ -28,25 +28,45 @@ import android.os.Parcel;
 import android.os.ServiceManager;
 import android.util.Log;
 import android.util.Pair;
-
 import moe.shizuku.server.IShizukuService;
 import rikka.shizuku.server.UserService;
+import rikka.sui.util.BridgeConstants;
 
 public class Starter {
 
     private static final String TAG = "SuiUserServiceStarter";
-    private static final int BRIDGE_TRANSACTION_CODE = ('_' << 24) | ('S' << 16) | ('U' << 8) | 'I';
-    private static final String BRIDGE_SERVICE_DESCRIPTOR = "android.app.IActivityManager";
-    private static final String BRIDGE_SERVICE_NAME = "activity";
-    private static final int BRIDGE_ACTION_GET_BINDER = 2;
+
+    private static int parseServerUid(String[] args) {
+        for (String arg : args) {
+            if (arg.startsWith("--server-uid=")) {
+                try {
+                    int uid = Integer.parseInt(arg.substring(13));
+                    if (uid == BridgeConstants.SERVER_UID_ROOT || uid == BridgeConstants.SERVER_UID_SHELL) {
+                        return uid;
+                    }
+                    Log.w(TAG, "Unsupported --server-uid=" + uid);
+                    return -1;
+                } catch (NumberFormatException e) {
+                    Log.w(TAG, "Invalid --server-uid argument", e);
+                    return -1;
+                }
+            }
+        }
+        return -1;
+    }
 
     public static void main(String[] args) {
-        if (Looper.getMainLooper() == null) {
-            Looper.prepareMainLooper();
+        if (Looper.myLooper() == null) {
+            if (Looper.getMainLooper() == null) {
+                prepareMainLooper();
+            } else {
+                Looper.prepare();
+            }
         }
 
         IBinder service;
         String token;
+        int serverUid = parseServerUid(args);
 
         UserService.setTag(TAG);
         Pair<IBinder, String> result = UserService.create(args);
@@ -59,7 +79,7 @@ public class Starter {
         service = result.first;
         token = result.second;
 
-        if (!sendBinder(service, token)) {
+        if (!sendBinder(service, token, serverUid)) {
             System.exit(1);
         }
 
@@ -69,16 +89,24 @@ public class Starter {
         Log.i(TAG, "service exited");
     }
 
-    private static IBinder requestBinderFromBridge() {
-        IBinder binder = ServiceManager.getService(BRIDGE_SERVICE_NAME);
+    @SuppressWarnings("deprecation")
+    private static void prepareMainLooper() {
+        Looper.prepareMainLooper();
+    }
+
+    private static IBinder requestBinderFromBridge(int serverUid) {
+        IBinder binder = ServiceManager.getService(BridgeConstants.SERVICE_NAME);
         if (binder == null) return null;
 
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
         try {
-            data.writeInterfaceToken(BRIDGE_SERVICE_DESCRIPTOR);
-            data.writeInt(BRIDGE_ACTION_GET_BINDER);
-            binder.transact(BRIDGE_TRANSACTION_CODE, data, reply, 0);
+            data.writeInterfaceToken(BridgeConstants.SERVICE_DESCRIPTOR);
+            data.writeInt(BridgeConstants.ACTION_GET_BINDER);
+            if (serverUid == BridgeConstants.SERVER_UID_ROOT || serverUid == BridgeConstants.SERVER_UID_SHELL) {
+                data.writeInt(serverUid);
+            }
+            binder.transact(BridgeConstants.TRANSACTION_CODE, data, reply, 0);
             reply.readException();
             IBinder received = reply.readStrongBinder();
             if (received != null) {
@@ -93,8 +121,8 @@ public class Starter {
         return null;
     }
 
-    private static boolean sendBinder(IBinder binder, String token) {
-        IShizukuService shizukuService = IShizukuService.Stub.asInterface(requestBinderFromBridge());
+    private static boolean sendBinder(IBinder binder, String token, int serverUid) {
+        IShizukuService shizukuService = IShizukuService.Stub.asInterface(requestBinderFromBridge(serverUid));
         if (shizukuService == null) {
             return false;
         }

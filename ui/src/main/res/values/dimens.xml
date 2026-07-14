@@ -1,4 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ This file is part of Sui.
+  ~
+  ~ Sui is free software: you can redistribute it and/or modify
+  ~ it under the terms of the GNU General Public License as published by
+  ~ the Free Software Foundation, either version 3 of the License, or
+  ~ (at your option) any later version.
+  ~
+  ~ Sui is distributed in the hope that it will be useful,
+  ~ but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~ GNU General Public License for more details.
+  ~
+  ~ You should have received a copy of the GNU General Public License
+  ~ along with Sui.  If not, see <https://www.gnu.org/licenses/>.
+  ~
+  ~ Copyright (c) 2026 Sui Contributors
+  -->
+
 <resources>
     <dimen name="expected_app_icon_max_size">40dp</dimen>
+
+    <dimen name="miuix_pull_to_refresh_circle_size">20dp</dimen>
+    <dimen name="miuix_pull_to_refresh_safe_padding">12dp</dimen>
+
+    <dimen name="miuix_bottom_sheet_dismiss_threshold">150dp</dimen>
+    <dimen name="miuix_bottom_sheet_velocity_threshold">800dp</dimen>
+    <item name="miuix_bounce_stiffness" type="dimen" format="float">150.0</item>
+
+    <dimen name="miuix_drag_handle_default_width">45dp</dimen>
+    <dimen name="miuix_drag_handle_pressed_width">55dp</dimen>
+    <dimen name="miuix_drag_handle_default_height">4dp</dimen>
+
+    <dimen name="afs_min_touch_target_size">22dp</dimen>
+    
+    <dimen name="afs_md2_popup_text_size">0sp</dimen>
+    <dimen name="afs_md2_popup_min_height">0dp</dimen>
+    <dimen name="afs_md2_popup_min_width">0dp</dimen>
 </resources>

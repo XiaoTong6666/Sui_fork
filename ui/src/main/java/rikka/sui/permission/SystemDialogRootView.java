@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.permission;
@@ -26,14 +26,13 @@ import android.content.IntentFilter;
 import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-
 import androidx.annotation.NonNull;
-
+import androidx.core.content.ContextCompat;
 import rikka.sui.util.Logger;
 
 public class SystemDialogRootView extends FrameLayout {
 
-    private static final Logger LOGGER = new Logger("SystemDialogRootView");
+    private static final Logger LOGGER = new Logger("SuiSystemDialogRootView");
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -50,9 +49,7 @@ public class SystemDialogRootView extends FrameLayout {
         windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
     }
 
-    public void onClose() {
-
-    }
+    public void onClose() {}
 
     public boolean onBackPressed() {
         return true;
@@ -98,6 +95,7 @@ public class SystemDialogRootView extends FrameLayout {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
 
@@ -106,7 +104,7 @@ public class SystemDialogRootView extends FrameLayout {
 
         try {
             try {
-                getContext().registerReceiver(receiver, intentFilter);
+                ContextCompat.registerReceiver(getContext(), receiver, intentFilter, ContextCompat.RECEIVER_EXPORTED);
                 LOGGER.i("registerReceiver android.intent.action.CLOSE_SYSTEM_DIALOGS");
             } catch (Exception e) {
                 LOGGER.w(e, "registerReceiver android.intent.action.CLOSE_SYSTEM_DIALOGS");

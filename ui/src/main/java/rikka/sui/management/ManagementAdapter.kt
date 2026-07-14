@@ -14,32 +14,89 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 package rikka.sui.management
 
-import rikka.recyclerview.BaseRecyclerViewAdapter
-import rikka.recyclerview.ClassCreatorPool
+import android.content.Context
+import android.view.LayoutInflater
+import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import rikka.sui.model.AppInfo
 
-class ManagementAdapter : BaseRecyclerViewAdapter<ClassCreatorPool>() {
+class ManagementAdapter(
+    context: Context,
+) : RecyclerView.Adapter<ManagementAppItemViewHolder>() {
+
+    private val inflater = LayoutInflater.from(context)
+    private val adapterScope = MainScope()
+    private val items = ArrayList<AppInfo>()
+    private var updateJob: Job? = null
 
     init {
-        creatorPool.putRule(AppInfo::class.java, ManagementAppItemViewHolder.CREATOR)
         setHasStableIds(true)
     }
 
+    override fun getItemCount(): Int = items.size
+
     override fun getItemId(position: Int): Long {
-        return getItemAt<Any>(position).hashCode().toLong()
+        val item = items[position]
+        val uid = item.packageInfo.applicationInfo?.uid?.toLong() ?: 0L
+        return uid * 31L + item.packageInfo.packageName.hashCode().toLong()
     }
 
-    override fun onCreateCreatorPool(): ClassCreatorPool {
-        return ClassCreatorPool()
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ManagementAppItemViewHolder = ManagementAppItemViewHolder.create(inflater, parent)
+
+    override fun onBindViewHolder(holder: ManagementAppItemViewHolder, position: Int) {
+        holder.bind(items[position], this)
+    }
+
+    override fun onViewRecycled(holder: ManagementAppItemViewHolder) {
+        holder.recycle()
+        super.onViewRecycled(holder)
     }
 
     fun updateData(data: List<AppInfo>) {
-        getItems<Any>().clear()
-        getItems<Any>().addAll(data)
-        notifyDataSetChanged()
+        updateJob?.cancel()
+        val newData = ArrayList(data)
+
+        updateJob = adapterScope.launch(Dispatchers.Default) {
+            val oldData = withContext(Dispatchers.Main) { ArrayList(items) }
+            val result = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = oldData.size
+
+                override fun getNewListSize(): Int = newData.size
+
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean {
+                    val oldItem = oldData[oldItemPosition]
+                    val newItem = newData[newItemPosition]
+                    return oldItem.packageInfo.packageName == newItem.packageInfo.packageName &&
+                        oldItem.packageInfo.applicationInfo?.uid == newItem.packageInfo.applicationInfo?.uid
+                }
+
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean = oldData[oldItemPosition] == newData[newItemPosition]
+            })
+
+            withContext(Dispatchers.Main) {
+                if (!isActive) return@withContext
+                items.clear()
+                items.addAll(newData)
+                result.dispatchUpdatesTo(this@ManagementAdapter)
+            }
+        }
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        updateJob?.cancel()
+        adapterScope.cancel()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 }

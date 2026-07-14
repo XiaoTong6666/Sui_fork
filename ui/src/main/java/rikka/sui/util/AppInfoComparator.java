@@ -14,26 +14,39 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.util;
 
 import java.util.Comparator;
-
 import rikka.sui.model.AppInfo;
-import rikka.sui.util.AppNameComparator;
-import rikka.sui.util.UserHandleCompat;
+import rikka.sui.server.SuiConfig;
 
 public class AppInfoComparator implements Comparator<AppInfo> {
 
     private final AppNameComparator<AppInfo> appNameComparator = new AppNameComparator<>(new AppInfoProvider());
 
+    private static int getSortOrder(int flags) {
+        if ((flags & SuiConfig.FLAG_ALLOWED) != 0) {
+            return 0;
+        }
+        if ((flags & SuiConfig.FLAG_ALLOWED_SHELL) != 0) {
+            return 1;
+        }
+        if ((flags & SuiConfig.FLAG_DENIED) != 0) {
+            return 2;
+        }
+        if ((flags & SuiConfig.FLAG_HIDDEN) != 0) {
+            return 3;
+        }
+        return 4;
+    }
+
     @Override
     public int compare(AppInfo o1, AppInfo o2) {
-        int o1f = o1.flags, o2f = o2.flags;
-        if (o1.flags == 0) o1f = Integer.MAX_VALUE;
-        if (o2.flags == 0) o2f = Integer.MAX_VALUE;
+        int o1f = getSortOrder(o1.flags);
+        int o2f = getSortOrder(o2.flags);
         int c = Integer.compare(o1f, o2f);
         if (c == 0) return appNameComparator.compare(o1, o2);
         return c;

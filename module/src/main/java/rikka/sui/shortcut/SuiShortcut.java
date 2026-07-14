@@ -14,16 +14,17 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.shortcut;
 
 import static rikka.sui.shortcut.ShortcutConstants.LOGGER;
 import static rikka.sui.shortcut.ShortcutConstants.SHORTCUT_EXTRA;
+import static rikka.sui.shortcut.ShortcutConstants.SHORTCUT_EXTRA_TOKEN;
 import static rikka.sui.shortcut.ShortcutConstants.SHORTCUT_ID;
 
-import android.annotation.TargetApi;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
@@ -42,28 +43,29 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.provider.Settings;
-
+import androidx.annotation.RequiresApi;
 import java.util.ArrayList;
 import java.util.List;
+import rikka.sui.util.SettingsPackages;
 
 public class SuiShortcut {
 
-    private static final String PACKAGE_NAME = "com.android.settings";
     private static final int FLAGS = Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK;
 
-    public static Intent getIntent(Context context, boolean requiresStandardLaunchMode) {
-        String[] actions = new String[]{
-                Settings.ACTION_WIFI_SETTINGS,
-                Settings.ACTION_NETWORK_OPERATOR_SETTINGS,
-                Settings.ACTION_DEVICE_INFO_SETTINGS,
-                Settings.ACTION_DISPLAY_SETTINGS,
-                Settings.ACTION_SOUND_SETTINGS,
-                Settings.ACTION_INTERNAL_STORAGE_SETTINGS,
-                Settings.ACTION_SECURITY_SETTINGS,
-                Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
+    public static Intent getIntent(Context context, boolean requiresStandardLaunchMode, String token) {
+        String packageName = SettingsPackages.getPreferredSettingsPackage();
+        String[] actions = new String[] {
+            Settings.ACTION_WIFI_SETTINGS,
+            Settings.ACTION_NETWORK_OPERATOR_SETTINGS,
+            Settings.ACTION_DEVICE_INFO_SETTINGS,
+            Settings.ACTION_DISPLAY_SETTINGS,
+            Settings.ACTION_SOUND_SETTINGS,
+            Settings.ACTION_INTERNAL_STORAGE_SETTINGS,
+            Settings.ACTION_SECURITY_SETTINGS,
+            Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
         };
 
-        Intent intent = new Intent("null").setPackage(PACKAGE_NAME);
+        Intent intent = new Intent("null").setPackage(packageName);
         PackageManager pm = context.getPackageManager();
 
         for (String action : actions) {
@@ -74,7 +76,8 @@ public class SuiShortcut {
                 if (resolveInfo != null
                         && resolveInfo.activityInfo != null
                         && resolveInfo.activityInfo.exported
-                        && (!requiresStandardLaunchMode || resolveInfo.activityInfo.launchMode == ActivityInfo.LAUNCH_MULTIPLE)) {
+                        && (!requiresStandardLaunchMode
+                                || resolveInfo.activityInfo.launchMode == ActivityInfo.LAUNCH_MULTIPLE)) {
                     if (requiresStandardLaunchMode) {
                         LOGGER.i("Found action for Sui shortcut (standard launch mode): %s", action);
                     } else {
@@ -91,24 +94,23 @@ public class SuiShortcut {
 
         if ("null".equals(intent.getAction())) {
             if (requiresStandardLaunchMode) {
-                intent = getIntent(context, false);
+                intent = getIntent(context, false, token);
             } else {
                 LOGGER.w("Use launch intent for Sui shortcut");
-                intent = pm.getLaunchIntentForPackage(PACKAGE_NAME);
+                intent = pm.getLaunchIntentForPackage(packageName);
             }
         }
 
         intent.setFlags(FLAGS);
         intent.putExtra(SHORTCUT_EXTRA, 1);
+        if (token != null) {
+            intent.putExtra(SHORTCUT_EXTRA_TOKEN, token);
+        }
         return intent;
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
-    public static boolean updateExistingShortcuts(Context context, Resources resources) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return true;
-        }
-
+    @RequiresApi(Build.VERSION_CODES.O)
+    public static boolean updateExistingShortcuts(Context context, Resources resources, String token) {
         LOGGER.d("updateExistingShortcuts");
 
         boolean hasDynamic = false;
@@ -118,7 +120,8 @@ public class SuiShortcut {
         List<ShortcutInfo> existingShortcuts;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            existingShortcuts = shortcutManager.getShortcuts(ShortcutManager.FLAG_MATCH_PINNED | ShortcutManager.FLAG_MATCH_DYNAMIC);
+            existingShortcuts = shortcutManager.getShortcuts(
+                    ShortcutManager.FLAG_MATCH_PINNED | ShortcutManager.FLAG_MATCH_DYNAMIC);
         } else {
             existingShortcuts = new ArrayList<>();
             existingShortcuts.addAll(shortcutManager.getDynamicShortcuts());
@@ -148,6 +151,9 @@ public class SuiShortcut {
             if (!intent.hasExtra(SHORTCUT_EXTRA)) {
                 LOGGER.i("Update shortcut %s since it does not have extra", id);
                 shouldUpdate = true;
+            } else if (token != null && !token.equals(intent.getStringExtra(SHORTCUT_EXTRA_TOKEN))) {
+                LOGGER.i("Update shortcut %s since token changed", id);
+                shouldUpdate = true;
             }
         }
 
@@ -156,6 +162,7 @@ public class SuiShortcut {
             shortcutsToRemove.add("rikka.sui.SUI");
             shortcutManager.removeDynamicShortcuts(shortcutsToRemove);
 
+            @SuppressLint("DiscouragedApi")
             int id = resources.getIdentifier("shortcut_is_out_dated", "string", "rikka.sui");
             if (id != 0) {
                 shortcutManager.disableShortcuts(shortcutsToRemove, resources.getString(id));
@@ -166,7 +173,7 @@ public class SuiShortcut {
 
         if (shouldUpdate) {
             List<ShortcutInfo> shortcutsToUpdate = new ArrayList<>();
-            shortcutsToUpdate.add(createShortcut(context, resources));
+            shortcutsToUpdate.add(createShortcut(context, resources, token));
             boolean res = shortcutManager.updateShortcuts(shortcutsToUpdate);
             LOGGER.v("updateShortcuts: %s", Boolean.toString(res));
         }
@@ -174,18 +181,19 @@ public class SuiShortcut {
         return hasDynamic;
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
-    private static ShortcutInfo createShortcut(Context context, Resources resources) {
+    @RequiresApi(Build.VERSION_CODES.O)
+    private static ShortcutInfo createShortcut(Context context, Resources resources, String token) {
         Icon icon;
 
         try {
-            Configuration configuration = new Configuration(context.getResources().getConfiguration());
+            Configuration configuration =
+                    new Configuration(context.getResources().getConfiguration());
             configuration.uiMode &= ~Configuration.UI_MODE_NIGHT_MASK;
             configuration.uiMode |= Configuration.UI_MODE_NIGHT_NO;
             Context themedContext = context.createConfigurationContext(configuration);
             int size = Math.round(Resources.getSystem().getDisplayMetrics().density * 108);
 
-            TypedArray a = themedContext.getTheme().obtainStyledAttributes(new int[]{android.R.attr.colorAccent});
+            TypedArray a = themedContext.getTheme().obtainStyledAttributes(new int[] {android.R.attr.colorAccent});
             int accentColor = a.getColor(0, 0);
             a.recycle();
 
@@ -195,6 +203,7 @@ public class SuiShortcut {
             paint.setColor(0xfff5f5f5 /* packages/apps/Settings/res/values/colors.xml shortcut_background */);
             canvas.drawRect(0, 0, size, size, paint);
 
+            @SuppressLint("DiscouragedApi")
             int id = resources.getIdentifier("ic_shortcut_24", "drawable", "rikka.sui");
             if (id == 0) {
                 throw new IllegalStateException("Cannot find drawable resource ic_shortcut_24");
@@ -216,11 +225,11 @@ public class SuiShortcut {
                 .setShortLabel("Sui")
                 .setLongLabel("Sui")
                 .setIcon(icon)
-                .setIntent(getIntent(context, true))
+                .setIntent(getIntent(context, true, token))
                 .build();
     }
 
-    public static void addDynamicShortcut(Context context, Resources resources) {
+    public static void addDynamicShortcut(Context context, Resources resources, String token) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return;
         }
@@ -229,14 +238,14 @@ public class SuiShortcut {
 
         ShortcutManager shortcutManager = context.getSystemService(ShortcutManager.class);
 
-        ShortcutInfo shortcut = createShortcut(context, resources);
+        ShortcutInfo shortcut = createShortcut(context, resources, token);
         List<ShortcutInfo> list = new ArrayList<>();
         list.add(shortcut);
 
         shortcutManager.addDynamicShortcuts(list);
     }
 
-    public static void requestPinnedShortcut(Context context, Resources resources) {
+    public static void requestPinnedShortcut(Context context, Resources resources, String token) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return;
         }
@@ -258,7 +267,7 @@ public class SuiShortcut {
             return;
         }
 
-        ShortcutInfo shortcut = createShortcut(context, resources);
+        ShortcutInfo shortcut = createShortcut(context, resources, token);
 
         if (shortcutManager.isRequestPinShortcutSupported()) {
             shortcutManager.requestPinShortcut(shortcut, null);

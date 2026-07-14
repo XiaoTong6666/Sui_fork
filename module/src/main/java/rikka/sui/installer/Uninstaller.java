@@ -14,13 +14,11 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2022 Sui Contributors
+ * Copyright (c) 2022-2026 Sui Contributors
  */
 
 package rikka.sui.installer;
 
-import android.annotation.TargetApi;
-import android.content.pm.IPackageManager;
 import android.content.pm.IShortcutService;
 import android.content.pm.IShortcutServiceV31;
 import android.os.Build;
@@ -32,15 +30,15 @@ import android.os.ServiceManager;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
-
+import androidx.annotation.RequiresApi;
+import dev.rikka.tools.refine.Refine;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-import dev.rikka.tools.refine.Refine;
 import rikka.sui.shortcut.ShortcutConstants;
+import rikka.sui.util.SettingsPackages;
 
-@TargetApi(Build.VERSION_CODES.O)
+@RequiresApi(Build.VERSION_CODES.O)
 public class Uninstaller {
 
     private static final String TAG = "SuiUninstaller";
@@ -57,9 +55,7 @@ public class Uninstaller {
             if (userManager == null) {
                 userManager = IUserManager.Stub.asInterface(ServiceManager.getService("user"));
             }
-            if (shortcutService != null
-                    && userManager != null
-                    && userManager.isUserUnlocked(0)) {
+            if (shortcutService != null && userManager != null && userManager.isUserUnlocked(0)) {
                 break;
             }
 
@@ -71,12 +67,12 @@ public class Uninstaller {
         List<String> list = new ArrayList<>();
         list.add(ShortcutConstants.SHORTCUT_ID);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Refine.<IShortcutServiceV31>unsafeCast(shortcutService).removeDynamicShortcuts(
-                    "com.android.settings", list, 0);
-        } else {
-            shortcutService.removeDynamicShortcuts(
-                    "com.android.settings", list, 0);
+        for (String packageName : SettingsPackages.SETTINGS_CANDIDATES) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                Refine.<IShortcutServiceV31>unsafeCast(shortcutService).removeDynamicShortcuts(packageName, list, 0);
+            } else {
+                shortcutService.removeDynamicShortcuts(packageName, list, 0);
+            }
         }
     }
 
@@ -87,14 +83,13 @@ public class Uninstaller {
 
         Log.i(TAG, "main");
 
-        //noinspection deprecation
-        Os.setuid(1000);
+        setSystemUid();
 
-        if (Looper.getMainLooper() == null) {
-            Looper.prepareMainLooper();
+        if (Looper.myLooper() == null) {
+            Looper.prepare();
         }
 
-        new Handler(Looper.getMainLooper()).post(() -> {
+        new Handler(Looper.myLooper()).post(() -> {
             try {
                 removeShortcuts();
             } catch (Throwable e) {
@@ -106,5 +101,10 @@ public class Uninstaller {
         });
 
         Looper.loop();
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void setSystemUid() throws ErrnoException {
+        Os.setuid(1000);
     }
 }

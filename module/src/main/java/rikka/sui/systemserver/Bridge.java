@@ -14,16 +14,15 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.systemserver;
 
-import android.content.Intent;
-
-import moe.shizuku.server.IShizukuService;
-
 import static rikka.sui.systemserver.SystemServerConstants.LOGGER;
+
+import android.content.Intent;
+import moe.shizuku.server.IShizukuService;
 
 public class Bridge {
 
@@ -42,17 +41,18 @@ public class Bridge {
     }
 
     public static boolean isHidden(int uid) {
-        IShizukuService service = BridgeService.get();
-        if (service == null) {
-            LOGGER.d("binder is null");
-            return false;
-        }
+        return SystemProcess.isHidden(uid);
+    }
 
-        try {
-            return service.isHidden(uid);
-        } catch (Throwable e) {
-            LOGGER.w(e, "isHidden");
-            return false;
-        }
+    public static boolean isRootAllowed(int uid) {
+        return SystemProcess.isRootAllowed(uid);
+    }
+
+    public static boolean isShellAllowed(int uid) {
+        return SystemProcess.isShellAllowed(uid);
+    }
+
+    public static int getPermissionFlags(int uid) {
+        return SystemProcess.getEffectivePermissionFlags(uid);
     }
 }

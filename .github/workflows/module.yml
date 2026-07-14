@@ -1,106 +1,94 @@
 name: Module
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
-      - master
+      - main
+      - dev
     paths-ignore:
-      - '**/README.md'
+      - '.github/ISSUE_TEMPLATE'
+      - 'README*.md'
+      - 'docs/**'
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'README*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-20.04
-    if: ${{ !startsWith(github.event.head_commit.message, '[skip ci]') }}
+    name: Build module
+    uses: ./.github/workflows/build.yml
+    if: ${{ github.event_name != 'push' || github.event.head_commit == null || !startsWith(github.event.head_commit.message, '[skip ci]') }}
+    with:
+      java_version: '21'
+    secrets: inherit
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          submodules: 'recursive'
-          fetch-depth: 0
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
-      - name: Cache Gradle Dependencies
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            !~/.gradle/caches/build-cache-*
-          key: gradle-deps-module-${{ hashFiles('**/build.gradle') }}
-          restore-keys: |
-            gradle-deps
-      - name: Cache Gradle Dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            !~/.gradle/caches/build-cache-*
-          key: gradle-deps-module-${{ hashFiles('**/build.gradle') }}
-          restore-keys: |
-            gradle-deps
-      - name: Cache Ccache
-        uses: actions/cache@v3
-        with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-ccache-cache-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-ccache-cache-
-      - name: Install ccache
-        run: |
-          sudo apt-get install -y ccache
-          ccache -o max_size=2G
-          ccache -o hash_dir=false
-      - name: Build with Gradle
-        run: |
-          mkdir -p ~/.gradle/wrapper
-          mkdir -p ~/.gradle/caches
-          [ $(du -s ~/.gradle/wrapper | awk '{ print $1 }') -gt 250000 ] && rm -rf ~/.gradle/wrapper/* || true
-          find ~/.gradle/caches -exec touch -d "2 days ago" {} + || true
-          echo 'org.gradle.caching=true' >> gradle.properties
-          echo 'org.gradle.parallel=true' >> gradle.properties
-          echo 'org.gradle.vfs.watch=true' >> gradle.properties
-          echo 'org.gradle.jvmargs=-Xmx2048m' >> gradle.properties
-          ./gradlew zipRiruDebug zipRiruRelease zipZygiskDebug zipZygiskRelease
-      - name: Prepare artifact
-        if: success()
-        id: prepareArtifact
-        run: |
-          riruReleaseName=`ls out/sui-riru-*-release.zip | awk -F '(/|.zip)' '{print $2}'` && echo "::set-output name=riruReleaseName::$riruReleaseName"
-          riruDebugName=`ls out/sui-riru-*-debug.zip | awk -F '(/|.zip)' '{print $2}'` && echo "::set-output name=riruDebugName::$riruDebugName"
-          zygiskReleaseName=`ls out/sui-zygisk-*-release.zip | awk -F '(/|.zip)' '{print $2}'` && echo "::set-output name=zygiskReleaseName::$zygiskReleaseName"
-          zygiskDebugName=`ls out/sui-zygisk-*-debug.zip | awk -F '(/|.zip)' '{print $2}'` && echo "::set-output name=zygiskDebugName::$zygiskDebugName"
-          unzip out/sui-riru-*-release.zip -d sui-riru-release
-          unzip out/sui-riru-*-debug.zip -d sui-riru-debug
-          unzip out/sui-zygisk-*-release.zip -d sui-zygisk-release
-          unzip out/sui-zygisk-*-debug.zip -d sui-zygisk-debug
-      - name: Upload Riru release
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ steps.prepareArtifact.outputs.riruReleaseName }}
-          path: './sui-riru-release/*'
-      - name: Upload Riru debug
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ steps.prepareArtifact.outputs.riruDebugName }}
-          path: './sui-riru-debug/*'
-      - name: Upload Zygisk release
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ steps.prepareArtifact.outputs.zygiskReleaseName }}
-          path: './sui-zygisk-release/*'
-      - name: Upload Zygisk debug
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ steps.prepareArtifact.outputs.zygiskDebugName }}
-          path: './sui-zygisk-debug/*'
-      - name: Upload mappings
-        uses: actions/upload-artifact@v3
-        with:
-          name: mappings
-          path: |
-            "module/build/outputs/mapping/release"
-            "ui/build/outputs/mapping/release"
+  release:
+    name: Publish release
+    needs: build
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/') }}
+    uses: ./.github/workflows/release.yml
+    with:
+      release_tag: ${{ github.ref == 'refs/heads/main' && 'nightly' || github.ref_name }}
+      release_title: ${{ github.ref == 'refs/heads/main' && 'Nightly Build' || 'Release' }}
+      delete_existing_assets: ${{ github.ref == 'refs/heads/main' }}
+      version_name: ${{ needs.build.outputs.version_name }}
+      version_code: ${{ needs.build.outputs.version_code }}
+      commit_sha: ${{ needs.build.outputs.commit_sha }}
+      commit_url: ${{ needs.build.outputs.commit_url }}
+      build_duration: ${{ needs.build.outputs.build_duration }}
+      release_zip_name: ${{ needs.build.outputs.release_zip_name }}
+      debug_zip_name: ${{ needs.build.outputs.debug_zip_name }}
+      release_sha256: ${{ needs.build.outputs.release_sha256 }}
+      debug_sha256: ${{ needs.build.outputs.debug_sha256 }}
+    secrets: inherit
+
+  ksu-release:
+    name: Sync KernelSU community release
+    needs:
+      - build
+      - release
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/') }}
+    uses: ./.github/workflows/ksu-release.yml
+    with:
+      main_repo: XiaoTong6666/Sui
+      ksu_target_repo: KernelSU-Modules-Repo/zygisk-sui
+      version_name: ${{ needs.build.outputs.version_name }}
+      version_code: ${{ needs.build.outputs.version_code }}
+      commit_sha: ${{ needs.build.outputs.commit_sha }}
+      commit_full_sha: ${{ needs.build.outputs.commit_full_sha }}
+      build_duration: ${{ needs.build.outputs.build_duration }}
+      release_zip_name: ${{ needs.build.outputs.release_zip_name }}
+      release_sha256: ${{ needs.build.outputs.release_sha256 }}
+    secrets: inherit
+
+  pages:
+    name: Update pages metadata
+    needs:
+      - build
+      - release
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || startsWith(github.ref, 'refs/tags/') }}
+    uses: ./.github/workflows/pages.yml
+    with:
+      release_tag: ${{ github.ref == 'refs/heads/main' && 'nightly' || github.ref_name }}
+      release_title: ${{ github.ref == 'refs/heads/main' && 'Nightly Build' || 'Release' }}
+      version_code: ${{ needs.build.outputs.version_code }}
+      version_short: ${{ needs.build.outputs.version_short }}
+      release_zip_name: ${{ needs.build.outputs.release_zip_name }}
+      commit_sha: ${{ needs.build.outputs.commit_sha }}
+      commit_url: ${{ needs.build.outputs.commit_url }}
+      build_duration: ${{ needs.build.outputs.build_duration }}
+      release_sha256: ${{ needs.build.outputs.release_sha256 }}
+    secrets: inherit

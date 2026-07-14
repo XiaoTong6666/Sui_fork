@@ -14,44 +14,44 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.app;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Color;
-import android.os.Build;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
-import android.view.WindowInsets;
 import android.widget.FrameLayout;
-
+import androidx.activity.EdgeToEdge;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-
-import rikka.core.res.ResourcesKt;
-import rikka.material.app.DayNightDelegate;
-import rikka.material.app.MaterialActivity;
-import rikka.material.widget.AppBarLayout;
+import androidx.core.graphics.ColorUtils;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import com.google.android.material.color.DynamicColors;
 import rikka.sui.R;
+import rikka.sui.ktx.ResourcesKt;
+import rikka.sui.util.MonetSettings;
 
-public class AppActivity extends MaterialActivity {
+public class AppActivity extends AppCompatActivity {
 
     private final Application application;
     private final Resources resources;
 
     private ViewGroup rootView;
-    private AppBarLayout toolbarContainer;
+    private ViewGroup toolbarContainer;
 
     public AppActivity(Application application, Resources resources) {
         this.application = application;
         this.resources = resources;
-        DayNightDelegate.setApplicationContext(this);
     }
 
     @Override
@@ -70,59 +70,81 @@ public class AppActivity extends MaterialActivity {
     }
 
     @Override
+    public android.content.ComponentName getComponentName() {
+        return new android.content.ComponentName(
+                getPackageName(), "com.android.settings.Settings$WifiSettingsActivity");
+    }
+
+    @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
-        setTheme(R.style.AppTheme);
+        setTheme(R.style.Theme_Sui);
+
+        final boolean monetEnabled = MonetSettings.isMonetEnabled(this);
+        MonetSettings.syncFromServerAsync(this, (changed, enabled) -> {
+            if (!changed) {
+                return;
+            }
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    recreate();
+                }
+            });
+        });
+        if (monetEnabled) {
+            DynamicColors.applyToActivityIfAvailable(this);
+        }
+
         super.onCreate(savedInstanceState);
-        super.setContentView(R.layout.appbar_fragment_activity);
 
-        rootView = findViewById(R.id.root);
-        toolbarContainer = findViewById(R.id.toolbar_container);
-        Toolbar toolbar = findViewById(R.id.toolbar);
+        try {
+            super.setContentView(R.layout.appbar_fragment_activity);
 
-        setAppBar(toolbarContainer, toolbar);
+            rootView = findViewById(R.id.root);
+            toolbarContainer = findViewById(R.id.toolbar_container);
+            Toolbar toolbar = findViewById(R.id.toolbar);
+
+            if (toolbar != null) {
+                setSupportActionBar(toolbar);
+            } else {
+                android.util.Log.e("Sui", "Toolbar not found in appbar_fragment_activity layout");
+            }
+
+            ViewCompat.setOnApplyWindowInsetsListener(toolbarContainer, (v, insets) -> {
+                int statusBarHeight = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
+                v.setPadding(v.getPaddingLeft(), statusBarHeight, v.getPaddingRight(), v.getPaddingBottom());
+                return insets;
+            });
+
+            EdgeToEdge.enable(this);
+
+            boolean isNight = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                    == Configuration.UI_MODE_NIGHT_YES;
+            if (isNight && monetEnabled) {
+                int primaryColor = ResourcesKt.resolveColor(getTheme(), androidx.appcompat.R.attr.colorPrimary);
+                int blendedBg = ColorUtils.blendARGB(Color.BLACK, primaryColor, 0.10f);
+                rootView.setBackgroundColor(blendedBg);
+                if (toolbarContainer != null) {
+                    toolbarContainer.setBackgroundColor(blendedBg);
+                }
+                getWindow().setBackgroundDrawable(new ColorDrawable(blendedBg));
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Sui", "Fatal error in AppActivity.onCreate", t);
+        }
     }
 
     @Override
     public void setContentView(int layoutResID) {
         getLayoutInflater().inflate(layoutResID, rootView, true);
-        rootView.bringChildToFront(toolbarContainer);
     }
 
     public void setContentView(@Nullable View view) {
-        setContentView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(
+                view,
+                new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
     public void setContentView(@Nullable View view, @Nullable ViewGroup.LayoutParams params) {
         rootView.addView(view, 0, params);
-    }
-
-    public void onApplyTranslucentSystemBars() {
-        super.onApplyTranslucentSystemBars();
-
-        final Window window = getWindow();
-        final Resources.Theme theme = getTheme();
-
-        if (Build.VERSION.SDK_INT >= 26 && window != null) {
-            View decorView = window.getDecorView();
-            if (decorView == null) {
-                return;
-            }
-
-            decorView.post(() -> {
-                WindowInsets insets = decorView.getRootWindowInsets();
-                float insetsBottom = (float) (insets != null ? insets.getSystemWindowInsetBottom() : 0);
-                if (insetsBottom >= Resources.getSystem().getDisplayMetrics().density * (float) 40) {
-                    window.setNavigationBarColor(ResourcesKt.resolveColor(theme, android.R.attr.navigationBarColor) & 0x00ffffff | 0xdf000000);
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        window.setNavigationBarContrastEnforced(true);
-                    }
-                } else {
-                    window.setNavigationBarColor(Color.TRANSPARENT);
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        window.setNavigationBarContrastEnforced(false);
-                    }
-                }
-            });
-        }
     }
 }

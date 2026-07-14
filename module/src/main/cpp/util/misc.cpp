@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 #include <cstdio>
@@ -29,35 +29,46 @@
 #include <dirent.h>
 #include "misc.h"
 
-int mkdirs(const char *pathname, mode_t mode) {
-    char *path = strdup(pathname), *p;
+int mkdirs(const char* pathname, mode_t mode) {
+    char* path = strdup(pathname);
+    char* p;
+    int result = 0;
+    if (path == nullptr) {
+        errno = ENOMEM;
+        return -1;
+    }
     errno = 0;
     for (p = path + 1; *p; ++p) {
         if (*p == '/') {
             *p = '\0';
             if (mkdir(path, mode) == -1) {
-                if (errno != EEXIST)
-                    return -1;
+                if (errno != EEXIST) {
+                    result = -1;
+                    goto cleanup;
+                }
             }
             *p = '/';
         }
     }
     if (mkdir(path, mode) == -1) {
-        if (errno != EEXIST)
-            return -1;
+        if (errno != EEXIST) {
+            result = -1;
+            goto cleanup;
+        }
     }
+cleanup:
     free(path);
-    return 0;
+    return result;
 }
 
-int ensure_dir(const char *path, mode_t mode) {
+int ensure_dir(const char* path, mode_t mode) {
     if (access(path, R_OK) == -1)
         return mkdirs(path, mode);
 
     return 0;
 }
 
-int copyfileat(int src_path_fd, const char *src_path, int dst_path_fd, const char *dst_path) {
+int copyfileat(int src_path_fd, const char* src_path, int dst_path_fd, const char* dst_path) {
     int src_fd;
     int dst_fd;
     struct stat stat_buf{};
@@ -68,8 +79,10 @@ int copyfileat(int src_path_fd, const char *src_path, int dst_path_fd, const cha
     if ((src_fd = openat(src_path_fd, src_path, O_RDONLY)) == -1)
         return -1;
 
-    if (fstat(src_fd, &stat_buf) == -1)
+    if (fstat(src_fd, &stat_buf) == -1) {
+        close(src_fd);
         return -1;
+    }
 
     dst_fd = openat(dst_path_fd, dst_path, O_WRONLY | O_CREAT | O_TRUNC, stat_buf.st_mode);
     if (dst_fd == -1) {
@@ -101,11 +114,11 @@ int copyfileat(int src_path_fd, const char *src_path, int dst_path_fd, const cha
     }
 }
 
-int copyfile(const char *src_path, const char *dst_path) {
+int copyfile(const char* src_path, const char* dst_path) {
     return copyfileat(0, src_path, 0, dst_path);
 }
 
-ssize_t read_eintr(int fd, void *out, size_t len) {
+ssize_t read_eintr(int fd, void* out, size_t len) {
     ssize_t ret;
     do {
         ret = read(fd, out, len);
@@ -113,19 +126,19 @@ ssize_t read_eintr(int fd, void *out, size_t len) {
     return ret;
 }
 
-int read_full(int fd, void *out, size_t len) {
+int read_full(int fd, void* out, size_t len) {
     while (len > 0) {
         ssize_t ret = read_eintr(fd, out, len);
         if (ret <= 0) {
             return -1;
         }
-        out = (void *) ((uintptr_t) out + ret);
+        out = (void*)((uintptr_t)out + ret);
         len -= ret;
     }
     return 0;
 }
 
-int write_full(int fd, const void *buf, size_t count) {
+int write_full(int fd, const void* buf, size_t count) {
     while (count > 0) {
         ssize_t size = write(fd, buf, count < SSIZE_MAX ? count : SSIZE_MAX);
         if (size == -1) {
@@ -135,32 +148,34 @@ int write_full(int fd, const void *buf, size_t count) {
                 return -1;
         }
 
-        buf = (const void *) ((uintptr_t) buf + size);
+        buf = (const void*)((uintptr_t)buf + size);
         count -= size;
     }
     return 0;
 }
 
-int is_num(const char *s) {
-    size_t len = strlen(s);
-    for (size_t i = 0; i < len; ++i)
-        if (s[i] < '0' || s[i] > '9')
+int is_num(const char* s) {
+    for (; *s; ++s)
+        if (*s < '0' || *s > '9')
             return 0;
     return 1;
 }
 
-void foreach_proc(foreach_proc_function *func) {
-    DIR *dir;
-    struct dirent *entry;
+void foreach_proc(foreach_proc_function* func) {
+    DIR* dir;
+    struct dirent* entry;
 
     if (!(dir = opendir("/proc")))
         return;
 
     while ((entry = readdir(dir))) {
-        if (entry->d_type != DT_DIR) continue;
-        if (!is_num(entry->d_name)) continue;
+        if (entry->d_type != DT_DIR)
+            continue;
+        if (!is_num(entry->d_name))
+            continue;
         pid_t pid = atoi(entry->d_name);
-        if (func(pid)) break;
+        if (func(pid))
+            break;
     }
 
     closedir(dir);

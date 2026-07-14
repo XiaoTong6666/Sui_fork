@@ -14,15 +14,17 @@
  * You should have received a copy of the GNU General Public License
  * along with Sui.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Copyright (c) 2021 Sui Contributors
+ * Copyright (c) 2021-2026 Sui Contributors
  */
 
 package rikka.sui.util;
 
 import android.util.Log;
-
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.FileHandler;
 import java.util.logging.SimpleFormatter;
 
@@ -30,6 +32,8 @@ public class Logger {
 
     private final String TAG;
     private final java.util.logging.Logger LOGGER;
+    private static final Set<String> FILE_HANDLERS =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     public Logger(String TAG) {
         this.TAG = TAG;
@@ -39,11 +43,16 @@ public class Logger {
     public Logger(String TAG, String file) {
         this.TAG = TAG;
         this.LOGGER = java.util.logging.Logger.getLogger(TAG);
+        String key = TAG + '\n' + file;
+        if (!FILE_HANDLERS.add(key)) {
+            return;
+        }
         try {
             FileHandler fh = new FileHandler(file);
             fh.setFormatter(new SimpleFormatter());
             LOGGER.addHandler(fh);
         } catch (IOException e) {
+            FILE_HANDLERS.remove(key);
             e.printStackTrace();
         }
     }
